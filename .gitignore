@@ -1,3 +1,7 @@
 .build/
 dist/
 .DS_Store
+
+# Vidéo de présentation + code film (hors app, non poussé)
+video/
+assets/video/
