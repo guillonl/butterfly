@@ -31,8 +31,9 @@ enum SelectedTextService {
         let systemWide = AXUIElementCreateSystemWide()
         var focusedRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
-              let focused = focusedRef else { return nil }
-        let element = focused as! AXUIElement
+              let focused = focusedRef,
+              CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
+        let element = focused as! AXUIElement // sûr : type vérifié ci-dessus
 
         var selectedRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &selectedRef) == .success,

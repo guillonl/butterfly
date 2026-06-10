@@ -90,9 +90,16 @@ Clic droit sur l'icône papillon → **Réglages…**, clique un raccourci puis 
   <img src="assets/screenshot-settings.png" width="400" alt="Réglages des raccourcis" />
 </p>
 
-## Vie privée
+## Vie privée et sécurité
 
-Tout tourne sur ta machine : la capture d'écran, l'OCR (Vision d'Apple), la correction et la traduction (modèle local via Ollama ou Apple Intelligence). Aucune requête réseau vers un service externe, aucune télémétrie.
+Tout tourne sur ta machine : la capture d'écran, l'OCR (Vision d'Apple), la correction et la traduction (modèle local via Ollama sur 127.0.0.1 ou Apple Intelligence on-device). Aucune requête réseau vers un service externe, aucune télémétrie, aucune clé API.
+
+À savoir :
+
+- Les captures d'écran restent en mémoire le temps de l'analyse, elles ne sont jamais écrites sur disque.
+- L'**historique** (50 dernières corrections) est stocké en clair dans les préférences locales de ton compte ; le bouton corbeille du panneau le purge entièrement. Évite d'analyser des secrets (mots de passe…) si d'autres comptes utilisent ta machine.
+- Le repli « copie silencieuse » du raccourci sélection restaure ton presse-papiers, mais un gestionnaire de presse-papiers tiers peut avoir enregistré le texte au passage.
+- L'app est signée avec le Hardened Runtime activé (anti-injection de code) et le binaire ne charge aucune dépendance tierce (zéro package externe).
 
 ## Pour les devs
 

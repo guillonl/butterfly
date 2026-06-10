@@ -23,5 +23,7 @@ IDENTITY="-"
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "Butterfly Dev"; then
   IDENTITY="Butterfly Dev"
 fi
-codesign --force --sign "$IDENTITY" "$APP"
-echo "OK → $APP (signé : $IDENTITY)"
+# --options runtime : Hardened Runtime, bloque l'injection de dylib dans un
+# process qui détient des permissions sensibles (écran, accessibilité).
+codesign --force --options runtime --sign "$IDENTITY" "$APP"
+echo "OK → $APP (signé : $IDENTITY, hardened runtime)"
