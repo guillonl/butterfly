@@ -15,16 +15,18 @@ final class ResultModel: ObservableObject {
     @Published var translation: SectionState = .loading
     @Published var fatalMessage: String?
     @Published var engineLabel: String = ""
-    @Published var targetLanguage: String = UserDefaults.standard.string(forKey: "targetLanguage") ?? "en" {
+    /// Cible choisie automatiquement à chaque capture (texte anglais → français,
+    /// sinon → anglais) ; le picker du panneau permet de changer ponctuellement.
+    @Published var targetLanguage: String = "en" {
         didSet {
             guard targetLanguage != oldValue else { return }
-            UserDefaults.standard.set(targetLanguage, forKey: "targetLanguage")
             retranslate()
         }
     }
 
     var backend: EngineBackend?
     var translationSource: String?
+    var historyID: UUID?
     private var translationTask: Task<Void, Never>?
 
     func fail(_ message: String) {
@@ -46,6 +48,9 @@ final class ResultModel: ObservableObject {
                 }
                 guard !Task.isCancelled else { return }
                 self?.translation = .value(translated)
+                if let id = self?.historyID {
+                    HistoryStore.shared.updateTranslation(id: id, translated: translated, language: language)
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.translation = .failure(L10n.t("panel.error"))

@@ -204,6 +204,7 @@ struct ResultView: View {
 /// Bouton copier rond en verre, feedback ✓ animé.
 struct CopyButton: View {
     let text: String
+    var icon: String = "doc.on.doc"
     @State private var copied = false
 
     var body: some View {
@@ -215,7 +216,7 @@ struct CopyButton: View {
                 withAnimation(.easeOut(duration: 0.3)) { copied = false }
             }
         } label: {
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
+            Image(systemName: copied ? "checkmark" : icon)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(copied ? AnyShapeStyle(.green) : AnyShapeStyle(.primary))
                 .frame(width: 16, height: 16)

@@ -28,6 +28,12 @@ enum L10n {
         "alert.screen.message": "Pour lire le texte sous la loupe, autorise Butterfly dans Réglages Système → Confidentialité et sécurité → Enregistrement de l'écran, puis relance le raccourci ⌥⌘B.",
         "alert.screen.open": "Ouvrir les Réglages",
         "alert.screen.later": "Plus tard",
+        "history.empty": "Aucune correction pour l'instant",
+        "history.emptyHint": "Appuie sur ⌥⌘B pour corriger un texte à l'écran",
+        "history.clear": "Effacer l'historique",
+        "history.now": "À l'instant",
+        "history.copyCorrection": "Copier la correction",
+        "history.copyTranslation": "Copier la traduction",
     ]
 
     private static let en: [String: String] = [
@@ -55,6 +61,12 @@ enum L10n {
         "alert.screen.message": "To read the text under the loupe, allow Butterfly in System Settings → Privacy & Security → Screen Recording, then press ⌥⌘B again.",
         "alert.screen.open": "Open Settings",
         "alert.screen.later": "Later",
+        "history.empty": "No corrections yet",
+        "history.emptyHint": "Press ⌥⌘B to fix any text on screen",
+        "history.clear": "Clear history",
+        "history.now": "Just now",
+        "history.copyCorrection": "Copy correction",
+        "history.copyTranslation": "Copy translation",
     ]
 
     static func t(_ key: String) -> String {

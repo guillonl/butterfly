@@ -1,12 +1,15 @@
 import AppKit
+import NaturalLanguage
 import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var engineMenu: NSMenu?
+    private var actionsMenu: NSMenu?
     private let overlay = OverlayController()
     private let resultPanel = ResultPanelController()
+    private let historyPanel = HistoryPanelController()
     private var capturing = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -28,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.startCapture()
             }
         }
+        if CommandLine.arguments.contains("--demo-history") {
+            runHistoryDemo()
+        }
     }
 
     // MARK: - Barre de menus
@@ -36,6 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = ButterflyArt.statusItemImage()
         statusItem.button?.toolTip = "Butterfly"
+        // Clic gauche → panneau historique ; clic droit → menu d'actions.
+        statusItem.button?.action = #selector(statusItemClicked)
+        statusItem.button?.target = self
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        historyPanel.onCapture = { [weak self] in self?.startCapture() }
 
         let menu = NSMenu()
 
@@ -78,7 +89,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             keyEquivalent: "q"
         ))
 
-        statusItem.menu = menu
+        // Pas de menu permanent : il est attaché à la volée au clic droit,
+        // sinon il intercepterait aussi le clic gauche.
+        actionsMenu = menu
+    }
+
+    @objc private func statusItemClicked() {
+        guard let event = NSApp.currentEvent, let button = statusItem.button else { return }
+        if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
+            historyPanel.close()
+            statusItem.menu = actionsMenu
+            button.performClick(nil)
+            statusItem.menu = nil
+        } else {
+            historyPanel.toggle(relativeTo: button)
+        }
     }
 
     @objc private func menuCapture() {
@@ -145,7 +170,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 model.fail(L10n.t("panel.noText"))
                 return
             }
+
+            // Cible automatique : texte anglais → français, sinon → anglais.
+            let recognizer = NLLanguageRecognizer()
+            recognizer.processString(text)
+            let detected = recognizer.dominantLanguage?.rawValue ?? "fr"
+            model.targetLanguage = detected.hasPrefix("en") ? "fr" : "en"
             model.original = text
+
+            let entryID = UUID()
+            model.historyID = entryID
+            HistoryStore.shared.add(HistoryEntry(
+                id: entryID,
+                date: Date(),
+                original: text,
+                corrected: nil,
+                translated: nil,
+                targetLanguage: model.targetLanguage
+            ))
 
             guard let backend = await TextEngine.shared.resolveBackend() else {
                 model.fail(L10n.t("panel.engineMissing"))
@@ -162,6 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 translationSource = corrected
                 model.correction = .value(corrected)
+                HistoryStore.shared.updateCorrection(id: entryID, corrected: corrected)
             } catch {
                 model.correction = .failure(L10n.t("panel.error"))
             }
@@ -208,6 +251,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 print("[selftest] ERROR: \(error)")
                 exit(1)
             }
+        }
+    }
+
+    /// `--demo-history` : remplit l'historique de données fictives et ouvre
+    /// le panneau sous l'icône menu bar (vérification visuelle sans clic).
+    private func runHistoryDemo() {
+        let samples: [(String, String, String, String)] = [
+            ("Je veut tester l'aplication", "Je veux tester l'application", "I want to test the application", "en"),
+            ("This is a sentense with mistaks", "This is a sentence with mistakes", "Ceci est une phrase avec des fautes", "fr"),
+            ("On se voit demain matin a la gare", "On se voit demain matin à la gare", "See you tomorrow morning at the station", "en"),
+        ]
+        for sample in samples {
+            HistoryStore.shared.add(HistoryEntry(
+                id: UUID(),
+                date: Date(),
+                original: sample.0,
+                corrected: sample.1,
+                translated: sample.2,
+                targetLanguage: sample.3
+            ))
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            guard let self, let button = self.statusItem.button else {
+                FileHandle.standardError.write(Data("[debug] demo-history: no status button\n".utf8))
+                return
+            }
+            FileHandle.standardError.write(Data("[debug] demo-history: showing panel\n".utf8))
+            self.historyPanel.show(relativeTo: button)
         }
     }
 

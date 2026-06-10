@@ -46,12 +46,23 @@ struct ButterflyShape: Shape {
 
 enum ButterflyArt {
 
-    /// Icône template 18×18 pour la barre de menus (s'adapte clair/sombre).
+    /// Icône template 20×20 pour la barre de menus (s'adapte clair/sombre).
+    /// Le glyphe papillon n'occupe que ~72 % de sa bounding box : on
+    /// surdimensionne le rect de dessin pour atteindre la taille optique
+    /// des icônes système voisines.
     static func statusItemImage() -> NSImage {
-        let size = NSSize(width: 18, height: 18)
+        let size = NSSize(width: 20, height: 20)
         let image = NSImage(size: size, flipped: true) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            let path = ButterflyShape().path(in: rect.insetBy(dx: 0.5, dy: 0.5))
+            let overscan: CGFloat = 1.32
+            let side = rect.width * overscan
+            let drawRect = CGRect(
+                x: rect.midX - side / 2,
+                y: rect.minY - side * 0.085,
+                width: side,
+                height: side
+            )
+            let path = ButterflyShape().path(in: drawRect)
             context.addPath(path.cgPath)
             context.setFillColor(NSColor.black.cgColor)
             context.fillPath()
