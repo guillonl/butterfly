@@ -7,18 +7,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var engineMenu: NSMenu?
     private var actionsMenu: NSMenu?
+    private var captureMenuItem: NSMenuItem?
+    private var selectionMenuItem: NSMenuItem?
     private let overlay = OverlayController()
     private let resultPanel = ResultPanelController()
     private let historyPanel = HistoryPanelController()
+    private let settingsPanel = SettingsPanelController()
     private var capturing = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
 
-        HotKeyManager.shared.onHotKey = { [weak self] in
-            self?.startCapture()
+        HotKeyManager.shared.handlers[.capture] = { [weak self] in self?.startCapture() }
+        HotKeyManager.shared.handlers[.selection] = { [weak self] in self?.startSelectionCorrection() }
+        HotKeyManager.shared.start()
+
+        settingsPanel.onShortcutChange = { [weak self] action, shortcut in
+            guard HotKeyManager.shared.apply(shortcut, for: action) else { return false }
+            ShortcutStore.save(shortcut, for: action)
+            self?.updateMenuShortcuts()
+            return true
         }
-        HotKeyManager.shared.register()
 
         if CommandLine.arguments.contains("--selftest") {
             runSelfTest()
@@ -33,6 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if CommandLine.arguments.contains("--demo-history") {
             runHistoryDemo()
+        }
+        if CommandLine.arguments.contains("--demo-settings") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.settingsPanel.show()
+            }
         }
     }
 
@@ -53,11 +67,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let captureItem = NSMenuItem(
             title: L10n.t("menu.capture"),
             action: #selector(menuCapture),
-            keyEquivalent: "b"
+            keyEquivalent: ""
         )
-        captureItem.keyEquivalentModifierMask = [.command, .option]
         captureItem.target = self
         menu.addItem(captureItem)
+        captureMenuItem = captureItem
+
+        let selectionItem = NSMenuItem(
+            title: L10n.t("menu.selection"),
+            action: #selector(menuSelection),
+            keyEquivalent: ""
+        )
+        selectionItem.target = self
+        menu.addItem(selectionItem)
+        selectionMenuItem = selectionItem
         menu.addItem(.separator())
 
         let engineItem = NSMenuItem(title: L10n.t("menu.engine"), action: nil, keyEquivalent: "")
@@ -79,6 +102,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.engineMenu = engineMenu
         menu.addItem(.separator())
 
+        let settingsItem = NSMenuItem(title: L10n.t("menu.settings"), action: #selector(showSettings), keyEquivalent: "")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
         let aboutItem = NSMenuItem(title: L10n.t("menu.about"), action: #selector(showAbout), keyEquivalent: "")
         aboutItem.target = self
         menu.addItem(aboutItem)
@@ -92,6 +119,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Pas de menu permanent : il est attaché à la volée au clic droit,
         // sinon il intercepterait aussi le clic gauche.
         actionsMenu = menu
+        updateMenuShortcuts()
+    }
+
+    /// Affiche les raccourcis courants dans le menu (façon native quand la
+    /// touche est un caractère simple, sinon dans le titre).
+    private func updateMenuShortcuts() {
+        let pairs: [(NSMenuItem?, HotKeyAction, String)] = [
+            (captureMenuItem, .capture, "menu.capture"),
+            (selectionMenuItem, .selection, "menu.selection"),
+        ]
+        for (item, action, titleKey) in pairs {
+            guard let item else { continue }
+            let shortcut = ShortcutStore.shortcut(for: action)
+            let keyName = Shortcut.keyName(for: shortcut.keyCode)
+            if keyName.count == 1 {
+                item.title = L10n.t(titleKey)
+                item.keyEquivalent = keyName.lowercased()
+                item.keyEquivalentModifierMask = shortcut.modifiers
+            } else {
+                item.keyEquivalent = ""
+                item.title = "\(L10n.t(titleKey))  (\(shortcut.display))"
+            }
+        }
     }
 
     @objc private func statusItemClicked() {
@@ -108,6 +158,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func menuCapture() {
         startCapture()
+    }
+
+    @objc private func menuSelection() {
+        startSelectionCorrection()
+    }
+
+    @objc private func showSettings() {
+        historyPanel.close()
+        settingsPanel.show()
     }
 
     @objc private func selectEngine(_ sender: NSMenuItem) {
@@ -171,47 +230,109 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            // Cible automatique : texte anglais → français, sinon → anglais.
-            let recognizer = NLLanguageRecognizer()
-            recognizer.processString(text)
-            let detected = recognizer.dominantLanguage?.rawValue ?? "fr"
-            model.sourceLanguage = detected
-            model.targetLanguage = detected.hasPrefix("en") ? "fr" : "en"
-            model.original = text
+            await processText(text, model: model)
+        }
+    }
 
-            let entryID = UUID()
-            model.historyID = entryID
-            HistoryStore.shared.add(HistoryEntry(
-                id: entryID,
-                date: Date(),
-                original: text,
-                corrected: nil,
-                translated: nil,
-                targetLanguage: model.targetLanguage
-            ))
+    /// Pipeline commun aux deux entrées (OCR de zone, texte sélectionné) :
+    /// détection de langue, historique, correction streamée puis traduction.
+    private func processText(_ text: String, model: ResultModel) async {
+        // Cible automatique : texte anglais → français, sinon → anglais.
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        let detected = recognizer.dominantLanguage?.rawValue ?? "fr"
+        model.sourceLanguage = detected
+        model.targetLanguage = detected.hasPrefix("en") ? "fr" : "en"
+        model.original = text
 
-            guard let backend = await TextEngine.shared.resolveBackend() else {
-                model.fail(L10n.t("panel.engineMissing"))
+        let entryID = UUID()
+        model.historyID = entryID
+        HistoryStore.shared.add(HistoryEntry(
+            id: entryID,
+            date: Date(),
+            original: text,
+            corrected: nil,
+            translated: nil,
+            targetLanguage: model.targetLanguage
+        ))
+
+        guard let backend = await TextEngine.shared.resolveBackend() else {
+            model.fail(L10n.t("panel.engineMissing"))
+            return
+        }
+        model.backend = backend
+        model.engineLabel = TextEngine.shared.label(for: backend)
+
+        // Correction d'abord (streamée) ; la traduction part de la version corrigée.
+        var translationSource = text
+        do {
+            let corrected = try await TextEngine.shared.correct(text, source: detected, using: backend) { partial in
+                DispatchQueue.main.async { model.correction = .value(partial) }
+            }
+            translationSource = corrected
+            model.correction = .value(corrected)
+            HistoryStore.shared.updateCorrection(id: entryID, corrected: corrected)
+        } catch {
+            model.correction = .failure(L10n.t("panel.error"))
+        }
+
+        model.translationSource = translationSource
+        model.retranslate()
+    }
+
+    /// Flux « texte sélectionné » : lit la sélection de l'app frontale
+    /// AVANT d'afficher le moindre panneau (pour ne pas perturber le focus),
+    /// puis lance le même pipeline que la loupe.
+    private func startSelectionCorrection() {
+        resultPanel.close()
+
+        guard SelectedTextService.hasPermission else {
+            if UserDefaults.standard.bool(forKey: "axPromptShown") {
+                showAccessibilityAlert()
+            } else {
+                UserDefaults.standard.set(true, forKey: "axPromptShown")
+                SelectedTextService.requestPermission()
+            }
+            return
+        }
+
+        Task.detached(priority: .utility) {
+            await TextEngine.shared.warmup()
+        }
+
+        // Position mémorisée tout de suite : le panneau s'ancre là où était
+        // la souris au moment du raccourci.
+        let screen = ScreenCaptureService.screenWithMouse()
+        let mouse = NSEvent.mouseLocation
+        let anchor = CGRect(
+            x: mouse.x - screen.frame.minX - 220,
+            y: screen.frame.maxY - mouse.y,
+            width: 440,
+            height: 4
+        )
+
+        Task { @MainActor in
+            let text = await SelectedTextService.fetchSelectedText()
+            let model = resultPanel.show(near: anchor, on: screen)
+            guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                model.fail(L10n.t("panel.noSelection"))
                 return
             }
-            model.backend = backend
-            model.engineLabel = TextEngine.shared.label(for: backend)
+            await processText(text, model: model)
+        }
+    }
 
-            // Correction d'abord (streamée) ; la traduction part de la version corrigée.
-            var translationSource = text
-            do {
-                let corrected = try await TextEngine.shared.correct(text, source: detected, using: backend) { partial in
-                    DispatchQueue.main.async { model.correction = .value(partial) }
-                }
-                translationSource = corrected
-                model.correction = .value(corrected)
-                HistoryStore.shared.updateCorrection(id: entryID, corrected: corrected)
-            } catch {
-                model.correction = .failure(L10n.t("panel.error"))
-            }
-
-            model.translationSource = translationSource
-            model.retranslate()
+    private func showAccessibilityAlert() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = L10n.t("alert.ax.title")
+        alert.informativeText = L10n.t("alert.ax.message")
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: L10n.t("alert.ax.open"))
+        alert.addButton(withTitle: L10n.t("alert.ax.later"))
+        if alert.runModal() == .alertFirstButtonReturn {
+            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+            NSWorkspace.shared.open(url)
         }
     }
 

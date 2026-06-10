@@ -72,11 +72,15 @@ Au premier **⌥⌘B**, macOS demande l'autorisation d'enregistrement de l'écra
 
 | Action | Geste |
 |---|---|
-| Corriger un texte à l'écran | ⌥⌘B puis clique-glisse |
+| Corriger un texte à l'écran (loupe) | ⌥⌘B puis clique-glisse |
+| Corriger le texte sélectionné | sélectionne du texte dans n'importe quelle app, puis ⌃⌘B |
+| Personnaliser les deux raccourcis | clic droit sur l'icône → Réglages… |
 | Annuler la sélection | Échap |
 | Historique | Clic sur l'icône papillon |
-| Menu (moteur IA, quitter) | Clic droit sur l'icône |
+| Menu (moteur IA, réglages, quitter) | Clic droit sur l'icône |
 | Fermer un panneau | Échap ou clic ailleurs |
+
+Le raccourci « texte sélectionné » saute la loupe et l'OCR : il lit directement la sélection de l'app active (via l'API Accessibilité, avec repli sur une copie silencieuse qui restaure ton presse-papiers). Il demande une permission supplémentaire au premier usage : Réglages Système → Confidentialité et sécurité → **Accessibilité** → activer Butterfly.
 
 ## Vie privée
 
