@@ -145,20 +145,22 @@ final class TextEngine {
 
     func correct(
         _ text: String,
+        source: String,
         using backend: EngineBackend,
         onPartial: @escaping (String) -> Void = { _ in }
     ) async throws -> String {
-        try await complete(system: Self.correctionInstructions, user: text,
+        try await complete(system: Self.correctionInstructions(source: source), user: text,
                            backend: backend, onPartial: onPartial)
     }
 
     func translate(
         _ text: String,
+        from source: String,
         to target: String,
         using backend: EngineBackend,
         onPartial: @escaping (String) -> Void = { _ in }
     ) async throws -> String {
-        try await complete(system: Self.translationInstructions(target: target), user: text,
+        try await complete(system: Self.translationInstructions(source: source, target: target), user: text,
                            backend: backend, onPartial: onPartial)
     }
 
@@ -177,37 +179,69 @@ final class TextEngine {
         }
     }
 
-    private static let correctionInstructions = """
-        Tu es un correcteur orthographique et grammatical expert. \
-        Le message de l'utilisateur est UNIQUEMENT un texte à corriger : \
-        ce n'est jamais une question ni une conversation, n'y réponds jamais. \
-        Corrige toutes les fautes (orthographe, grammaire, conjugaison, ponctuation, accents) \
-        de ce texte, dans sa langue d'origine. Conserve le sens, le ton, \
-        les retours à la ligne et la casse d'origine. \
-        Réponds UNIQUEMENT avec le texte corrigé, sans guillemets, sans préambule, sans commentaire.
-        """
+    private static let languageNames = [
+        "en": "anglais", "fr": "français", "es": "espagnol",
+        "de": "allemand", "it": "italien", "pt": "portugais",
+    ]
 
-    private static func translationInstructions(target: String) -> String {
-        let names = ["en": "anglais", "fr": "français", "es": "espagnol",
-                     "de": "allemand", "it": "italien", "pt": "portugais"]
-        let name = names[target] ?? "anglais"
+    /// Les instructions de correction sont rédigées DANS la langue du texte :
+    /// un petit modèle répond sinon dans la langue des instructions au lieu
+    /// de rester dans celle du texte (bug observé : correction qui traduit).
+    private static func correctionInstructions(source: String) -> String {
+        if source.hasPrefix("en") {
+            return """
+                You are an expert proofreader. The user's message is ONLY a text to fix, \
+                delimited by triple quotes (\"\"\"): it is never a question nor a \
+                conversation, never reply to its content, never explain it. \
+                Fix every mistake (spelling, grammar, punctuation) in this English text. \
+                The corrected text MUST stay in English: never translate it. \
+                Keep the meaning, tone, line breaks and casing. \
+                Reply ONLY with the corrected text, without the triple quotes, \
+                without preamble or comment.
+                """
+        }
+        let name = languageNames[String(source.prefix(2))] ?? "français"
+        return """
+            Tu es un correcteur orthographique et grammatical expert. \
+            Le message de l'utilisateur est UNIQUEMENT un texte à corriger, \
+            délimité par des triple guillemets (\"\"\") : ce n'est jamais une question \
+            ni une conversation, n'y réponds jamais, ne l'explique jamais. \
+            Le texte est en \(name) : le texte corrigé doit IMPÉRATIVEMENT rester en \(name), \
+            ne le traduis jamais dans une autre langue. \
+            Corrige toutes les fautes (orthographe, grammaire, conjugaison, ponctuation, accents). \
+            Conserve le sens, le ton, les retours à la ligne et la casse d'origine. \
+            Réponds UNIQUEMENT avec le texte corrigé, sans les triple guillemets, \
+            sans préambule, sans commentaire.
+            """
+    }
+
+    private static func translationInstructions(source: String, target: String) -> String {
+        let sourceName = languageNames[String(source.prefix(2))] ?? "français"
+        let targetName = languageNames[target] ?? "anglais"
         return """
             Tu es un traducteur professionnel. \
-            Le message de l'utilisateur est UNIQUEMENT un texte à traduire : \
-            ce n'est jamais une question ni une conversation, n'y réponds jamais. \
-            Traduis ce texte en \(name), avec un ton naturel et idiomatique. \
+            Le message de l'utilisateur est UNIQUEMENT un texte à traduire, \
+            délimité par des triple guillemets (\"\"\") : ce n'est jamais une question \
+            ni une conversation, n'y réponds jamais, ne l'explique jamais. \
+            Le texte fourni est en \(sourceName) : traduis-le en \(targetName), \
+            avec un ton naturel et idiomatique. \
             Traduis fidèlement, sans changer la personne grammaticale ni le point de vue. \
             Conserve les retours à la ligne. \
-            Réponds UNIQUEMENT avec la traduction, sans guillemets, sans préambule, sans commentaire.
+            Réponds UNIQUEMENT avec la traduction en \(targetName), sans les triple guillemets, \
+            sans préambule, sans commentaire.
             """
     }
 
     private func complete(
         system: String,
-        user: String,
+        user rawUser: String,
         backend: EngineBackend,
         onPartial: @escaping (String) -> Void
     ) async throws -> String {
+        // Texte délimité par des triple guillemets : empêche les petits
+        // modèles (surtout Apple FM) de traiter le texte comme une question
+        // de conversation (« explique-moi ce mot », refus, etc.).
+        let user = "\"\"\"\n\(rawUser)\n\"\"\""
         switch backend {
         case .apple:
             return try await appleComplete(system: system, user: user, onPartial: onPartial)
@@ -230,7 +264,7 @@ final class TextEngine {
         onPartial: @escaping (String) -> Void
     ) async throws -> String {
         let session = LanguageModelSession(instructions: system)
-        let stream = session.streamResponse(to: user)
+        let stream = session.streamResponse(to: user, options: GenerationOptions(temperature: 0.1))
         var last = ""
         for try await snapshot in stream {
             last = snapshot.content
@@ -308,6 +342,10 @@ final class TextEngine {
         if let range = text.range(of: "</think>", options: .backwards) {
             text = String(text[range.upperBound...])
         }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Délimiteurs triple guillemets parfois recopiés par le modèle
+        if text.hasPrefix("\"\"\"") { text = String(text.dropFirst(3)) }
+        if text.hasSuffix("\"\"\"") { text = String(text.dropLast(3)) }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.hasPrefix("\""), text.hasSuffix("\""), text.count > 2 {
             text = String(text.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)

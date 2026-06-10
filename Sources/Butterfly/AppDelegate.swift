@@ -175,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let recognizer = NLLanguageRecognizer()
             recognizer.processString(text)
             let detected = recognizer.dominantLanguage?.rawValue ?? "fr"
+            model.sourceLanguage = detected
             model.targetLanguage = detected.hasPrefix("en") ? "fr" : "en"
             model.original = text
 
@@ -199,7 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Correction d'abord (streamée) ; la traduction part de la version corrigée.
             var translationSource = text
             do {
-                let corrected = try await TextEngine.shared.correct(text, using: backend) { partial in
+                let corrected = try await TextEngine.shared.correct(text, source: detected, using: backend) { partial in
                     DispatchQueue.main.async { model.correction = .value(partial) }
                 }
                 translationSource = corrected
@@ -230,21 +231,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Modes de test (CLI)
 
-    /// `--selftest` : vérifie le moteur IA de bout en bout depuis le terminal.
+    /// `--selftest` : vérifie le moteur IA de bout en bout depuis le terminal,
+    /// dans les deux sens (FR→EN et EN→FR), correction restant dans la langue source.
     private func runSelfTest() {
         Task {
-            let sample = "Je veut allé au cinéma se soir avec mes ami."
             print("[selftest] resolving backend…")
             guard let backend = await TextEngine.shared.resolveBackend() else {
                 print("[selftest] NO BACKEND")
                 exit(1)
             }
-            print("[selftest] backend: \(backend.label)")
+            print("[selftest] backend: \(TextEngine.shared.label(for: backend))")
+            let cases: [(text: String, source: String, target: String)] = [
+                ("Je veut allé au cinéma se soir avec mes ami.", "fr", "en"),
+                ("I has went to the cinema yesterday with my freinds.", "en", "fr"),
+            ]
             do {
-                let corrected = try await TextEngine.shared.correct(sample, using: backend)
-                print("[selftest] corrected: \(corrected)")
-                let translated = try await TextEngine.shared.translate(corrected, to: "en", using: backend)
-                print("[selftest] translated: \(translated)")
+                for testCase in cases {
+                    let corrected = try await TextEngine.shared.correct(
+                        testCase.text, source: testCase.source, using: backend)
+                    print("[selftest] corrected(\(testCase.source)): \(corrected)")
+                    let translated = try await TextEngine.shared.translate(
+                        corrected, from: testCase.source, to: testCase.target, using: backend)
+                    print("[selftest] translated(\(testCase.target)): \(translated)")
+                }
                 print("[selftest] OK")
                 exit(0)
             } catch {

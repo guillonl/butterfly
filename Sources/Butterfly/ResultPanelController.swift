@@ -26,6 +26,7 @@ final class ResultModel: ObservableObject {
 
     var backend: EngineBackend?
     var translationSource: String?
+    var sourceLanguage: String = "fr"
     var historyID: UUID?
     private var translationTask: Task<Void, Never>?
 
@@ -38,9 +39,10 @@ final class ResultModel: ObservableObject {
         translationTask?.cancel()
         translation = .loading
         let language = targetLanguage
+        let sourceLang = sourceLanguage
         translationTask = Task { [weak self] in
             do {
-                let translated = try await TextEngine.shared.translate(source, to: language, using: backend) { partial in
+                let translated = try await TextEngine.shared.translate(source, from: sourceLang, to: language, using: backend) { partial in
                     DispatchQueue.main.async { [weak self] in
                         guard !(Task.isCancelled) else { return }
                         self?.translation = .value(partial)
