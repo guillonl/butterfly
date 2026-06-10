@@ -25,8 +25,8 @@ struct OverlayView: View {
     @State private var dragCurrent: CGPoint?
     @State private var appeared = false
 
-    private let loupeDiameter: CGFloat = 168
-    private let magnification: CGFloat = 2.4
+    private let loupeDiameter: CGFloat = 120
+    private let magnification: CGFloat = 1.7
 
     private var selectionRect: CGRect? {
         guard let start = dragStart, let current = dragCurrent else { return nil }
@@ -141,23 +141,38 @@ struct OverlayView: View {
         .animation(.easeOut(duration: 0.2), value: dragStart == nil)
     }
 
-    /// La loupe liquide : contenu magnifié + réticule + reflet + anneau de verre.
+    /// La loupe liquide : contenu magnifié (avec la ligne de sélection
+    /// reproduite dans la lentille) + réticule + reflet + anneau de verre.
     /// Elle remplace le curseur système (masqué par l'OverlayController) et
     /// suit le pointeur avec un spring court, effet « liquide ».
     private func loupe(at point: CGPoint, size: CGSize) -> some View {
         let d = loupeDiameter
         let m = magnification
+        let offX = d / 2 - point.x * m
+        let offY = d / 2 - point.y * m
         return ZStack {
-            Image(decorative: capture.image, scale: capture.scale)
-                .resizable()
-                .frame(width: size.width * m, height: size.height * m)
-                .offset(x: d / 2 - point.x * m, y: d / 2 - point.y * m)
-                .frame(width: d, height: d, alignment: .topLeading)
-                .clipShape(Circle())
+            // Contenu magnifié, clippé à la lentille
+            ZStack(alignment: .topLeading) {
+                Image(decorative: capture.image, scale: capture.scale)
+                    .resizable()
+                    .frame(width: size.width * m, height: size.height * m)
+                    .offset(x: offX, y: offY)
+
+                // La sélection en cours, magnifiée elle aussi : on voit
+                // précisément où passe la ligne sous la loupe.
+                if let sel = selectionRect, sel.width > 2 || sel.height > 2 {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.white.opacity(0.95), lineWidth: 2.5)
+                        .frame(width: max(sel.width * m, 4), height: max(sel.height * m, 4))
+                        .position(x: sel.midX * m + offX, y: sel.midY * m + offY)
+                }
+            }
+            .frame(width: d, height: d, alignment: .topLeading)
+            .clipShape(Circle())
 
             Group {
-                Rectangle().frame(width: 1, height: 16)
-                Rectangle().frame(width: 16, height: 1)
+                Rectangle().frame(width: 1, height: 12)
+                Rectangle().frame(width: 12, height: 1)
             }
             .foregroundStyle(.white.opacity(0.9))
             .shadow(color: .black.opacity(0.6), radius: 1)
@@ -165,7 +180,7 @@ struct OverlayView: View {
             Ellipse()
                 .fill(
                     LinearGradient(
-                        colors: [.white.opacity(0.32), .clear],
+                        colors: [.white.opacity(0.22), .clear],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -188,7 +203,7 @@ struct OverlayView: View {
         }
         .frame(width: d, height: d)
         .compositingGroup()
-        .shadow(color: .black.opacity(0.35), radius: 20, y: 10)
+        .shadow(color: .black.opacity(0.35), radius: 16, y: 8)
         .scaleEffect(appeared ? 1 : 0.6)
         .opacity(appeared ? 1 : 0)
         .position(point)

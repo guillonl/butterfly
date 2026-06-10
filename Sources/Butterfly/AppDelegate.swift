@@ -111,6 +111,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        // Précharge le modèle pendant que l'utilisateur fait sa sélection :
+        // au moment de l'OCR, le moteur est déjà chaud.
+        Task.detached(priority: .utility) {
+            await TextEngine.shared.warmup()
+        }
+
         capturing = true
         Task { @MainActor in
             defer { capturing = false }
@@ -146,12 +152,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             model.backend = backend
-            model.engineLabel = backend.label
+            model.engineLabel = TextEngine.shared.label(for: backend)
 
-            // Correction d'abord ; la traduction part de la version corrigée.
+            // Correction d'abord (streamée) ; la traduction part de la version corrigée.
             var translationSource = text
             do {
-                let corrected = try await TextEngine.shared.correct(text, using: backend)
+                let corrected = try await TextEngine.shared.correct(text, using: backend) { partial in
+                    DispatchQueue.main.async { model.correction = .value(partial) }
+                }
                 translationSource = corrected
                 model.correction = .value(corrected)
             } catch {

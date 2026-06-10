@@ -38,9 +38,14 @@ final class TextEngine {
     static let shared = TextEngine()
 
     private let ollamaBase = URL(string: "http://127.0.0.1:11434")!
-    /// Par ordre de préférence : la variante instruct (non-thinking) donne des
-    /// réponses propres ; le qwen3:4b de base sert de secours.
-    private let preferredOllamaModels = ["qwen3:4b-instruct", "qwen3:4b"]
+    /// Par ordre de préférence : les variantes instruct (non-thinking) donnent
+    /// des réponses propres et rapides ; le qwen3:4b de base sert de secours.
+    private let preferredOllamaModels = [
+        "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M",
+        "qwen3:4b-instruct",
+        "gemma3:4b",
+        "qwen3:4b",
+    ]
     private var resolvedOllamaModel: String?
     private let ollamaBinaryCandidates = [
         "/opt/homebrew/bin/ollama",
@@ -121,12 +126,55 @@ final class TextEngine {
 
     // MARK: - Tâches
 
-    func correct(_ text: String, using backend: EngineBackend) async throws -> String {
-        try await complete(system: Self.correctionInstructions, user: text, backend: backend)
+    /// Précharge le modèle Ollama (appelé dès l'appui sur le raccourci :
+    /// le modèle se charge pendant que l'utilisateur fait sa sélection).
+    func warmup() async {
+        guard preference != .apple else { return }
+        guard await ensureOllama() else { return }
+        var request = URLRequest(url: ollamaBase.appendingPathComponent("api/generate"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+        let body: [String: Any] = [
+            "model": resolvedOllamaModel ?? preferredOllamaModels.last!,
+            "keep_alive": "2h",
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        _ = try? await URLSession.shared.data(for: request)
     }
 
-    func translate(_ text: String, to target: String, using backend: EngineBackend) async throws -> String {
-        try await complete(system: Self.translationInstructions(target: target), user: text, backend: backend)
+    func correct(
+        _ text: String,
+        using backend: EngineBackend,
+        onPartial: @escaping (String) -> Void = { _ in }
+    ) async throws -> String {
+        try await complete(system: Self.correctionInstructions, user: text,
+                           backend: backend, onPartial: onPartial)
+    }
+
+    func translate(
+        _ text: String,
+        to target: String,
+        using backend: EngineBackend,
+        onPartial: @escaping (String) -> Void = { _ in }
+    ) async throws -> String {
+        try await complete(system: Self.translationInstructions(target: target), user: text,
+                           backend: backend, onPartial: onPartial)
+    }
+
+    /// Libellé du moteur affiché dans le panneau.
+    func label(for backend: EngineBackend) -> String {
+        switch backend {
+        case .apple:
+            return "Apple Intelligence · local"
+        case .ollama:
+            let model = resolvedOllamaModel ?? preferredOllamaModels.last!
+            if model.lowercased().contains("qwen3-4b-instruct") || model == "qwen3:4b-instruct" {
+                return "Qwen3 4B Instruct · local"
+            }
+            if model.hasPrefix("gemma3") { return "Gemma3 4B · local" }
+            return "Qwen3 4B · local"
+        }
     }
 
     private static let correctionInstructions = """
@@ -154,19 +202,42 @@ final class TextEngine {
             """
     }
 
-    private func complete(system: String, user: String, backend: EngineBackend) async throws -> String {
+    private func complete(
+        system: String,
+        user: String,
+        backend: EngineBackend,
+        onPartial: @escaping (String) -> Void
+    ) async throws -> String {
         switch backend {
-        case .apple: return try await appleComplete(system: system, user: user)
-        case .ollama: return try await ollamaComplete(system: system, user: user)
+        case .apple:
+            return try await appleComplete(system: system, user: user, onPartial: onPartial)
+        case .ollama:
+            // Retry unique : il arrive que toute la sortie qwen3 parte dans le
+            // raisonnement et que le contenu revienne vide.
+            do {
+                return try await ollamaCompleteOnce(system: system, user: user, onPartial: onPartial)
+            } catch EngineError.badResponse {
+                return try await ollamaCompleteOnce(system: system, user: user, onPartial: onPartial)
+            }
         }
     }
 
     // MARK: - Apple Intelligence
 
-    private func appleComplete(system: String, user: String) async throws -> String {
+    private func appleComplete(
+        system: String,
+        user: String,
+        onPartial: @escaping (String) -> Void
+    ) async throws -> String {
         let session = LanguageModelSession(instructions: system)
-        let response = try await session.respond(to: user)
-        return Self.cleaned(response.content)
+        let stream = session.streamResponse(to: user)
+        var last = ""
+        for try await snapshot in stream {
+            last = snapshot.content
+            let visible = Self.cleaned(last)
+            if !visible.isEmpty { onPartial(visible) }
+        }
+        return Self.cleaned(last)
     }
 
     // MARK: - Ollama
@@ -177,28 +248,24 @@ final class TextEngine {
         let error: String?
     }
 
-    private func ollamaComplete(system: String, user: String) async throws -> String {
-        // Le mode thinking de qwen3 n'est pas désactivable à 100 % avec ce
-        // runner : il arrive que toute la sortie parte dans le champ
-        // "thinking" et que "content" revienne vide. Un retry suffit.
-        do {
-            return try await ollamaCompleteOnce(system: system, user: user)
-        } catch EngineError.badResponse {
-            return try await ollamaCompleteOnce(system: system, user: user)
-        }
-    }
-
-    private func ollamaCompleteOnce(system: String, user: String) async throws -> String {
+    private func ollamaCompleteOnce(
+        system: String,
+        user: String,
+        onPartial: @escaping (String) -> Void
+    ) async throws -> String {
         var request = URLRequest(url: ollamaBase.appendingPathComponent("api/chat"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 180
+        request.timeoutInterval = 90
         // "/no_think" : soft switch qwen3 qui coupe le raisonnement.
         // Ne PAS envoyer "think": false — avec le runner chatml de l'app
         // Ollama, ce paramètre fait fuir le raisonnement dans la réponse.
+        // "keep_alive": le modèle reste chargé 2 h (sinon rechargement à froid
+        // de plusieurs secondes après 5 min d'inactivité).
         let body: [String: Any] = [
-            "model": resolvedOllamaModel ?? preferredOllamaModels[0],
-            "stream": false,
+            "model": resolvedOllamaModel ?? preferredOllamaModels.last!,
+            "stream": true,
+            "keep_alive": "2h",
             "messages": [
                 ["role": "system", "content": system + " /no_think"],
                 ["role": "user", "content": user],
@@ -206,13 +273,30 @@ final class TextEngine {
             "options": ["temperature": 0.2, "num_predict": 2048],
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
-        let decoded = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
-        if let error = decoded.error { throw EngineError.badResponse(error) }
-        guard let content = decoded.message?.content, !content.isEmpty else {
-            throw EngineError.badResponse("empty response")
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            throw EngineError.badResponse("HTTP \(http.statusCode)")
         }
-        return Self.cleaned(content)
+
+        var full = ""
+        for try await line in bytes.lines {
+            guard let data = line.data(using: .utf8),
+                  let chunk = try? JSONDecoder().decode(OllamaChatResponse.self, from: data) else { continue }
+            if let error = chunk.error { throw EngineError.badResponse(error) }
+            guard let delta = chunk.message?.content, !delta.isEmpty else { continue }
+            full += delta
+            // Ne pas streamer un bloc de raisonnement encore ouvert.
+            let thinkInProgress = full.contains("<think>") && !full.contains("</think>")
+            if !thinkInProgress {
+                let visible = Self.cleaned(full)
+                if !visible.isEmpty { onPartial(visible) }
+            }
+        }
+
+        let final = Self.cleaned(full)
+        guard !final.isEmpty else { throw EngineError.badResponse("empty response") }
+        return final
     }
 
     /// Nettoie la sortie brute du modèle : blocs <think> de qwen3

@@ -38,7 +38,12 @@ final class ResultModel: ObservableObject {
         let language = targetLanguage
         translationTask = Task { [weak self] in
             do {
-                let translated = try await TextEngine.shared.translate(source, to: language, using: backend)
+                let translated = try await TextEngine.shared.translate(source, to: language, using: backend) { partial in
+                    DispatchQueue.main.async { [weak self] in
+                        guard !(Task.isCancelled) else { return }
+                        self?.translation = .value(partial)
+                    }
+                }
                 guard !Task.isCancelled else { return }
                 self?.translation = .value(translated)
             } catch {
@@ -64,8 +69,8 @@ final class ResultPanelController {
     private var programmaticMove = false
     private(set) var model: ResultModel?
 
-    private let panelWidth: CGFloat = 488
-    private let estimatedHeight: CGFloat = 360
+    private let panelWidth: CGFloat = 440
+    private let estimatedHeight: CGFloat = 320
 
     /// Affiche le panneau près de la sélection (coordonnées overlay,
     /// origine haut-gauche de l'écran) et retourne son modèle.
@@ -90,9 +95,9 @@ final class ResultPanelController {
         x = max(visible.minX + 8, min(x, visible.maxX - panelWidth - 8))
 
         // Sous la sélection si possible, sinon au-dessus
-        var top = globalRect.minY + 8 // l'ombre du panneau a 24 px de marge interne
+        var top = globalRect.minY - 16
         if top - estimatedHeight < visible.minY + 8 {
-            top = min(globalRect.maxY + estimatedHeight - 8, visible.maxY - 8)
+            top = min(globalRect.maxY + 16 + estimatedHeight, visible.maxY - 8)
         }
         topLeft = NSPoint(x: x, y: top)
 
@@ -106,7 +111,10 @@ final class ResultPanelController {
         panel.isFloatingPanel = true
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = false // l'ombre est dessinée en SwiftUI autour du verre
+        // Ombre native de fenêtre : elle épouse exactement le contour arrondi
+        // du verre (une ombre SwiftUI dans une fenêtre transparente laisse un
+        // halo rectangulaire disgracieux).
+        panel.hasShadow = true
         panel.isMovableByWindowBackground = true
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = false

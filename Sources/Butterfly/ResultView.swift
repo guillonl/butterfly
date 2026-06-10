@@ -21,17 +21,26 @@ struct ResultView: View {
         }
         .frame(width: cardWidth, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 28))
-        .compositingGroup()
-        .shadow(color: .black.opacity(0.28), radius: 24, y: 12)
-        .padding(24) // marge pour l'ombre dans la fenêtre transparente
         .scaleEffect(appeared ? 1 : 0.94, anchor: .top)
         .opacity(appeared ? 1 : 0)
         .onAppear {
             withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) { appeared = true }
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: model.correction)
-        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: model.translation)
-        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: model.original)
+        // Animer uniquement les changements d'état (loading → texte), pas
+        // chaque token streamé, sinon le spring vibre pendant le stream.
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: phaseFingerprint)
+    }
+
+    /// Empreinte des phases de chaque section (0 loading, 1 valeur, 2 erreur).
+    private var phaseFingerprint: [Int] {
+        func kind(_ state: ResultModel.SectionState) -> Int {
+            switch state {
+            case .loading: return 0
+            case .value: return 1
+            case .failure: return 2
+            }
+        }
+        return [model.original == nil ? 0 : 1, kind(model.correction), kind(model.translation)]
     }
 
     // MARK: - Header
@@ -39,16 +48,7 @@ struct ResultView: View {
     private var header: some View {
         HStack(spacing: 10) {
             ButterflyShape()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(red: 0.48, green: 0.42, blue: 1.0),
-                            Color(red: 0.16, green: 0.78, blue: 0.94),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(.primary)
                 .frame(width: 22, height: 22)
             Text("Butterfly")
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
