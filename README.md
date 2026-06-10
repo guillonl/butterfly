@@ -1,60 +1,100 @@
-# Butterfly 🦋
+<p align="center">
+  <img src="assets/icon-preview.png" width="128" alt="Butterfly" />
+</p>
 
-Loupe Liquid Glass pour macOS Tahoe (26) : un raccourci, une zone de texte
-sélectionnée à l'écran, et Butterfly corrige les fautes et traduit, en local,
-gratuitement.
+<h1 align="center">Butterfly</h1>
 
-## Utilisation
+<p align="center">
+  Une loupe Liquid Glass pour macOS qui corrige tes fautes et traduit n'importe quel texte affiché à l'écran.<br/>
+  <strong>100 % local, 100 % gratuit.</strong> Aucun texte ne quitte jamais ta machine.
+</p>
 
-1. **⌥⌘B** (Option + Cmd + B) : l'écran gèle, une loupe en verre suit le curseur.
-2. **Clique-glisse** sur le texte à analyser (Échap pour annuler).
-3. Le panneau en verre affiche : texte détecté → correction → traduction
-   (langue cible changeable dans le panneau, anglais par défaut).
-4. Boutons copier sur chaque résultat.
+<p align="center">
+  <img src="assets/screenshot-panel.png" width="440" alt="Panneau de résultat Butterfly" />
+</p>
 
-L'app vit dans la barre de menus (icône papillon). Si Bartender est actif,
-l'icône peut être rangée dans son overflow.
+## Comment ça marche
 
-## Moteurs IA (100 % locaux, gratuits)
+1. Appuie sur **⌥⌘B** (Option + Cmd + B) : l'écran gèle et une loupe en verre suit ton curseur.
+2. **Clique-glisse** sur n'importe quel texte (un mail, un Slack, une image, un PDF, peu importe : c'est de la reconnaissance visuelle). Échap pour annuler.
+3. Un panneau en verre apparaît : texte détecté, **correction** des fautes, et **traduction**.
 
-| Moteur | Rôle | Notes |
-|---|---|---|
-| Ollama + qwen3:4b | principal | open source (Apache 2.0), `/no_think` injecté |
-| Apple Intelligence | secours | FoundationModels on-device |
+La langue est détectée automatiquement : un texte en anglais est corrigé en anglais et traduit en français, un texte en français est corrigé en français et traduit en anglais. Le menu de langue du panneau permet de forcer une autre cible (espagnol, allemand, italien, portugais).
 
-Sélection auto par défaut (menu barre de menus → AI engine). Butterfly démarre
-le serveur Ollama lui-même si nécessaire. Si le tag `qwen3:4b-instruct`
-(non-thinking, préféré) est installé un jour via `ollama pull qwen3:4b-instruct`,
-l'app l'utilisera automatiquement.
+Un clic sur l'icône papillon de la barre de menus ouvre l'**historique** de tes 50 dernières corrections, avec boutons copier. Clic droit pour le menu (choix du moteur IA, quitter).
 
-## Permissions
+<p align="center">
+  <img src="assets/screenshot-history.png" width="380" alt="Historique Butterfly" />
+</p>
 
-**Enregistrement de l'écran** (obligatoire pour lire le texte sous la loupe) :
-Réglages Système → Confidentialité et sécurité → Enregistrement de l'écran →
-activer Butterfly, puis laisser macOS relancer l'app. Le raccourci ⌥⌘B
-n'utilise pas l'API d'accessibilité (hotkey Carbon), aucune autre permission.
+## Installation
 
-## Dev
+### 1. Prérequis
+
+- **macOS 26 (Tahoe)** ou plus récent, Mac Apple Silicon
+- Les Command Line Tools d'Apple : `xcode-select --install`
+- [Homebrew](https://brew.sh) pour installer Ollama
+
+### 2. Le moteur IA (gratuit, au choix)
+
+**Option A, recommandée : Ollama + Qwen3 (open source).** Un seul téléchargement de ~2,5 Go :
 
 ```bash
-swift build -c release          # build
-bash scripts/build.sh           # build + bundle dist/Butterfly.app signé
-cp -R dist/Butterfly.app /Applications/   # déploiement
+brew install --cask ollama-app
+ollama pull hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
+```
 
-# Modes de test (binaire direct)
-./.build/release/Butterfly --selftest      # moteur IA bout en bout (stdout)
+**Option B : Apple Intelligence**, s'il est activé sur ton Mac (Réglages Système → Apple Intelligence et Siri).
+
+Butterfly choisit tout seul : Ollama en priorité, bascule sur Apple Intelligence sinon. Pas besoin de lancer Ollama toi-même, l'app démarre le serveur en arrière-plan quand il le faut.
+
+### 3. Builder et installer l'app
+
+```bash
+git clone https://github.com/guillonl/butterfly.git
+cd butterfly
+bash scripts/build.sh
+cp -R dist/Butterfly.app /Applications/
+open /Applications/Butterfly.app
+```
+
+### 4. La permission d'enregistrement de l'écran
+
+Au premier **⌥⌘B**, macOS demande l'autorisation d'enregistrement de l'écran (nécessaire pour lire le texte sous la loupe) :
+
+1. « Ouvrir les Réglages Système » → active **Butterfly**.
+2. macOS propose **« Quitter et rouvrir »** : clique ce bouton, c'est obligatoire.
+3. Re-appuie sur ⌥⌘B, c'est parti.
+
+> Note : l'app est signée localement (ad hoc). Si tu re-buildes une nouvelle version, macOS oubliera l'autorisation ; purge l'entrée avec `tccutil reset ScreenCapture com.leoguillon.butterfly` puis ré-accorde-la.
+
+## Raccourcis
+
+| Action | Geste |
+|---|---|
+| Corriger un texte à l'écran | ⌥⌘B puis clique-glisse |
+| Annuler la sélection | Échap |
+| Historique | Clic sur l'icône papillon |
+| Menu (moteur IA, quitter) | Clic droit sur l'icône |
+| Fermer un panneau | Échap ou clic ailleurs |
+
+## Vie privée
+
+Tout tourne sur ta machine : la capture d'écran, l'OCR (Vision d'Apple), la correction et la traduction (modèle local via Ollama ou Apple Intelligence). Aucune requête réseau vers un service externe, aucune télémétrie.
+
+## Pour les devs
+
+```bash
+swift build -c release                     # build
+./.build/release/Butterfly --selftest      # test du moteur IA bout en bout (FR↔EN)
 ./.build/release/Butterfly --demo          # panneau résultat avec données fictives
 ./.build/release/Butterfly --demo-overlay  # ouvre l'overlay loupe au lancement
-BUTTERFLY_DEBUG=1 ...                      # logs de détection Ollama
-
+./.build/release/Butterfly --demo-history  # ouvre l'historique avec données fictives
 swift scripts/make_icon.swift              # regénérer l'icône papillon
 ```
 
-Architecture : `HotKeyManager` (Carbon) → `ScreenCaptureService`
-(ScreenCaptureKit, écran gelé) → `OverlayController/View` (loupe SwiftUI,
-sélection) → `OCRService` (Vision) → `TextEngine` (Ollama/Apple) →
-`ResultPanelController/View` (panneau `glassEffect`).
+Architecture : `HotKeyManager` (hotkey Carbon, zéro permission) → `ScreenCaptureService` (ScreenCaptureKit, écran gelé) → `OverlayView` (loupe SwiftUI) → `OCRService` (Vision) → `TextEngine` (Ollama / Apple FoundationModels, streaming) → panneaux SwiftUI en `glassEffect`.
 
-Piège connu : ne jamais envoyer `"think": false` à l'API chat d'Ollama avec le
-runner chatml de l'app macOS, le raisonnement fuit dans `content`. Le soft
-switch `/no_think` + retry sur réponse vide est la combinaison fiable.
+## Licence
+
+[MIT](LICENSE) © 2026 Léo Guillon
