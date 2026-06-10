@@ -136,6 +136,9 @@ final class ResultPanelController {
         panel.setFrameTopLeftPoint(topLeft)
         programmaticMove = false
         panel.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak panel] in
+            panel?.invalidateShadow()
+        }
 
         // Le contenu SwiftUI change de taille au fil des résultats :
         // on garde le coin haut-gauche ancré.
@@ -146,6 +149,10 @@ final class ResultPanelController {
             self.programmaticMove = true
             panel.setFrameTopLeftPoint(self.topLeft)
             self.programmaticMove = false
+            // L'ombre native est un snapshot : la rafraîchir à chaque
+            // changement de taille (stream, animations) évite les contours
+            // fantômes de l'ancienne forme.
+            panel.invalidateShadow()
         }
         // Si Léo déplace le panneau à la main, on ré-ancre sur sa position.
         moveObserver = NotificationCenter.default.addObserver(

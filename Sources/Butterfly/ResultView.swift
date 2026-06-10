@@ -21,6 +21,9 @@ struct ResultView: View {
         }
         .frame(width: cardWidth, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 28))
+        // Le backdrop du verre occupe les bounds carrés de la fenêtre :
+        // sans clip, ses bords débordent des coins arrondis.
+        .clipShape(RoundedRectangle(cornerRadius: 28))
         .scaleEffect(appeared ? 1 : 0.94, anchor: .top)
         .opacity(appeared ? 1 : 0)
         .onAppear {

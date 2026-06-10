@@ -34,6 +34,7 @@ struct HistoryView: View {
         }
         .frame(width: 360, height: 440, alignment: .top)
         .glassEffect(.regular, in: .rect(cornerRadius: 24))
+        .clipShape(RoundedRectangle(cornerRadius: 24))
         .scaleEffect(appeared ? 1 : 0.96, anchor: .top)
         .opacity(appeared ? 1 : 0)
         .onAppear {
@@ -203,6 +204,9 @@ final class HistoryPanelController {
 
         self.panel = panel
         panel.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak panel] in
+            panel?.invalidateShadow()
+        }
         if ProcessInfo.processInfo.environment["BUTTERFLY_DEBUG"] != nil {
             FileHandle.standardError.write(Data("[debug] history panel frame=\(panel.frame) visible=\(panel.isVisible) button=\(buttonFrame)\n".utf8))
         }
