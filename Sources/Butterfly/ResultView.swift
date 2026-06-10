@@ -7,9 +7,11 @@ struct ResultView: View {
     var onClose: () -> Void
 
     @State private var appeared = false
+    @State private var originalExpanded = false
 
     private let languages = ["en", "fr", "es", "de", "it", "pt"]
     private let cardWidth: CGFloat = 440
+    private let collapsedLineLimit = 3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -108,9 +110,25 @@ struct ResultView: View {
                 Text(original)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
-                    .lineLimit(5)
+                    .lineLimit(originalExpanded ? nil : collapsedLineLimit)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
+                if needsExpansion(original) {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            originalExpanded.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(L10n.t(originalExpanded ? "panel.less" : "panel.more"))
+                            Image(systemName: originalExpanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 8, weight: .bold))
+                        }
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
             } else {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -120,6 +138,11 @@ struct ResultView: View {
                 }
             }
         }
+    }
+
+    /// Heuristique : le texte détecté risque d'être tronqué à 3 lignes.
+    private func needsExpansion(_ text: String) -> Bool {
+        text.count > 150 || text.filter { $0 == "\n" }.count >= collapsedLineLimit
     }
 
     private var correctionSection: some View {

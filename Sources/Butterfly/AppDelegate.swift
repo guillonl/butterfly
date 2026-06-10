@@ -304,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let model = resultPanel.show(near: center, on: screen)
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 800_000_000)
-            model.original = "Je veut tester l'aplication avec quelque fautes pour voir le résulta."
+            model.original = "Je veut tester l'aplication avec quelque fautes pour voir le résulta. Ce texte de démonstration est volontairement assé long pour vérifier que le bouton Voir plus s'affiche correctement quand le texte détecté dépasse trois lignes dans le panneau de résultat de Butterfly."
             model.engineLabel = "Qwen3 4B · local"
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             model.correction = .value("Je veux tester l'application avec quelques fautes pour voir le résultat.")
