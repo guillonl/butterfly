@@ -17,5 +17,11 @@ if [ -f assets/AppIcon.icns ]; then
   cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 fi
 
-codesign --force --sign - "$APP"
-echo "OK → $APP"
+# Identité stable « Butterfly Dev » si présente (les permissions TCC
+# survivent alors aux rebuilds), sinon signature ad hoc.
+IDENTITY="-"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "Butterfly Dev"; then
+  IDENTITY="Butterfly Dev"
+fi
+codesign --force --sign "$IDENTITY" "$APP"
+echo "OK → $APP (signé : $IDENTITY)"

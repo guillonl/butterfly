@@ -66,7 +66,7 @@ Au premier **⌥⌘B**, macOS demande l'autorisation d'enregistrement de l'écra
 2. macOS propose **« Quitter et rouvrir »** : clique ce bouton, c'est obligatoire.
 3. Re-appuie sur ⌥⌘B, c'est parti.
 
-> Note : l'app est signée localement (ad hoc). Si tu re-buildes une nouvelle version, macOS oubliera l'autorisation ; purge l'entrée avec `tccutil reset ScreenCapture com.leoguillon.butterfly` puis ré-accorde-la.
+> Note : par défaut l'app est signée localement (ad hoc). Si tu re-buildes une nouvelle version, macOS oubliera les autorisations ; purge les entrées avec `tccutil reset ScreenCapture com.leoguillon.butterfly` (et `Accessibility`) puis ré-accorde-les. Pour que les permissions survivent aux rebuilds, crée une fois un certificat local de confiance nommé « Butterfly Dev » (certificat self-signed avec l'extension codeSigning, importé et approuvé dans ton trousseau de session) : `scripts/build.sh` le détecte et signe avec automatiquement.
 
 ## Raccourcis
 
@@ -81,6 +81,14 @@ Au premier **⌥⌘B**, macOS demande l'autorisation d'enregistrement de l'écra
 | Fermer un panneau | Échap ou clic ailleurs |
 
 Le raccourci « texte sélectionné » saute la loupe et l'OCR : il lit directement la sélection de l'app active (via l'API Accessibilité, avec repli sur une copie silencieuse qui restaure ton presse-papiers). Il demande une permission supplémentaire au premier usage : Réglages Système → Confidentialité et sécurité → **Accessibilité** → activer Butterfly.
+
+### Personnaliser les raccourcis
+
+Clic droit sur l'icône papillon → **Réglages…**, clique un raccourci puis tape la nouvelle combinaison (au moins ⌘, ⌥ ou ⌃).
+
+<p align="center">
+  <img src="assets/screenshot-settings.png" width="400" alt="Réglages des raccourcis" />
+</p>
 
 ## Vie privée
 
