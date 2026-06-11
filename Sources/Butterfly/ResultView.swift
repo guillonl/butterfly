@@ -147,9 +147,30 @@ struct ResultView: View {
 
     private var correctionSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionLabel(L10n.t("panel.correction"))
+            HStack(spacing: 8) {
+                sectionLabel(L10n.t("panel.correction"))
+                if noCorrectionNeeded {
+                    Text(L10n.t("panel.noChange"))
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.quaternary.opacity(0.6), in: Capsule())
+                }
+                Spacer()
+            }
             stateView(model.correction, emphasized: true)
         }
+    }
+
+    /// Vrai quand le texte corrigé est identique à l'original (aucune faute).
+    private var noCorrectionNeeded: Bool {
+        guard let original = model.original,
+              case .value(let corrected) = model.correction else { return false }
+        func normalize(_ s: String) -> String {
+            s.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return normalize(corrected) == normalize(original)
     }
 
     private var translationSection: some View {
@@ -177,14 +198,10 @@ struct ResultView: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Text(L10n.languageName(model.targetLanguage))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 7, weight: .bold))
-            }
-            .font(.system(size: 11, weight: .medium))
+            Text(L10n.languageName(model.targetLanguage))
+                .font(.system(size: 11, weight: .medium))
         }
-        .menuStyle(.button)
+        .menuStyle(.button) // un seul chevron : l'indicateur natif (à droite)
         .buttonStyle(.glass)
         .buttonBorderShape(.capsule)
         .controlSize(.small)
