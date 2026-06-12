@@ -15,6 +15,10 @@ struct SettingsView: View {
     @State private var errorMessage: String?
     @State private var keyMonitor: Any?
     @State private var appeared = false
+    @State private var showTranslation: Bool =
+        UserDefaults.standard.object(forKey: "showTranslation") == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: "showTranslation")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -35,6 +39,28 @@ struct SettingsView: View {
                     title: L10n.t("settings.selection"),
                     hint: L10n.t("settings.selectionHint")
                 )
+                Divider().opacity(0.3)
+                HStack(spacing: 12) {
+                    Image(systemName: "globe")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.t("settings.showTranslation"))
+                            .font(.system(size: 13, weight: .medium))
+                        Text(L10n.t("settings.showTranslationHint"))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer(minLength: 12)
+                    Toggle("", isOn: $showTranslation)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .labelsHidden()
+                        .onChange(of: showTranslation) { _, newValue in
+                            UserDefaults.standard.set(newValue, forKey: "showTranslation")
+                        }
+                }
                 if let errorMessage {
                     HStack(spacing: 6) {
                         Image(systemName: "exclamationmark.triangle.fill")
@@ -190,7 +216,9 @@ final class SettingsPanelController {
             )
         )
         panel.contentViewController = host
-        panel.setContentSize(NSSize(width: width, height: height))
+        // Taille réelle du contenu SwiftUI (la hauteur varie avec les rangées)
+        let fitting = host.view.fittingSize
+        panel.setContentSize(NSSize(width: width, height: max(height, fitting.height)))
 
         let visible = screen.visibleFrame
         panel.setFrameTopLeftPoint(NSPoint(

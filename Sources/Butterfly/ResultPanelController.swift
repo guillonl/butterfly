@@ -28,6 +28,8 @@ final class ResultModel: ObservableObject {
     var translationSource: String?
     var sourceLanguage: String = "fr"
     var historyID: UUID?
+    /// Réglage « Afficher la traduction » (toggle des Réglages), lu à l'ouverture.
+    var translationEnabled = true
     private var translationTask: Task<Void, Never>?
 
     func fail(_ message: String) {
@@ -35,7 +37,7 @@ final class ResultModel: ObservableObject {
     }
 
     func retranslate() {
-        guard let backend, let source = translationSource else { return }
+        guard translationEnabled, let backend, let source = translationSource else { return }
         translationTask?.cancel()
         translation = .loading
         let language = targetLanguage
@@ -86,6 +88,9 @@ final class ResultPanelController {
         close()
 
         let model = ResultModel()
+        model.translationEnabled = UserDefaults.standard.object(forKey: "showTranslation") == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: "showTranslation")
         self.model = model
 
         // Overlay (origine haut-gauche) → coordonnées globales AppKit (bas-gauche)
@@ -128,7 +133,11 @@ final class ResultPanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let host = NSHostingController(
-            rootView: ResultView(model: model, onClose: { [weak self] in self?.close() })
+            rootView: ResultView(
+                model: model,
+                onClose: { [weak self] in self?.close() },
+                maxHeight: visible.height - 32
+            )
         )
         host.sizingOptions = [.preferredContentSize]
         panel.contentViewController = host
@@ -150,6 +159,7 @@ final class ResultPanelController {
             guard let self, let panel = self.panel else { return }
             self.programmaticMove = true
             panel.setFrameTopLeftPoint(self.topLeft)
+            self.clampIntoScreen(panel)
             self.programmaticMove = false
             // L'ombre native est un snapshot : la rafraîchir à chaque
             // changement de taille (stream, animations) évite les contours
@@ -173,6 +183,20 @@ final class ResultPanelController {
         }
 
         return model
+    }
+
+    /// Garde le panneau entièrement visible : s'il grandit au point de sortir
+    /// de l'écran (texte long), il remonte au lieu de déborder.
+    private func clampIntoScreen(_ panel: NSPanel) {
+        guard let screen = panel.screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        var frame = panel.frame
+        if frame.maxY > visible.maxY - 8 { frame.origin.y = visible.maxY - 8 - frame.height }
+        if frame.minY < visible.minY + 8 { frame.origin.y = visible.minY + 8 }
+        if frame != panel.frame {
+            panel.setFrame(frame, display: true)
+            topLeft = NSPoint(x: frame.minX, y: frame.maxY)
+        }
     }
 
     func close() {

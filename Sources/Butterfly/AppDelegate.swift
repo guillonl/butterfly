@@ -365,6 +365,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let cases: [(text: String, source: String, target: String)] = [
                 ("Je veut allé au cinéma se soir avec mes ami.", "fr", "en"),
                 ("I has went to the cinema yesterday with my freinds.", "en", "fr"),
+                // Anti-régression : texte correct, ne doit PAS être modifié
+                // (le modèle retirait le trait d'union de « Entre-temps »).
+                ("Nous traitons votre demande. Entre-temps, vous pouvez modifier vos comptes.", "fr", "en"),
             ]
             do {
                 for testCase in cases {

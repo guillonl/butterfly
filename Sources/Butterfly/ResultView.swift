@@ -6,8 +6,12 @@ struct ResultView: View {
     @ObservedObject var model: ResultModel
     var onClose: () -> Void
 
+    /// Hauteur max du panneau (bornée à l'écran) : au-delà, le contenu scrolle.
+    var maxHeight: CGFloat = .infinity
     @State private var appeared = false
     @State private var originalExpanded = false
+    @State private var contentHeight: CGFloat = 0
+    @State private var headerHeight: CGFloat = 84
 
     private let languages = ["en", "fr", "es", "de", "it", "pt"]
     private let cardWidth: CGFloat = 440
@@ -16,10 +20,11 @@ struct ResultView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 + 1 }
             Divider()
                 .opacity(0.4)
                 .padding(.horizontal, 24)
-            content
+            scrollableContent
         }
         .frame(width: cardWidth, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 28))
@@ -80,6 +85,18 @@ struct ResultView: View {
 
     // MARK: - Contenu
 
+    /// Le contenu suit sa hauteur naturelle tant qu'il tient dans l'écran,
+    /// puis devient scrollable au lieu de faire déborder le panneau.
+    private var scrollableContent: some View {
+        let available = max(maxHeight - headerHeight, 120)
+        return ScrollView {
+            content
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+        }
+        .frame(height: contentHeight > 0 ? min(contentHeight, available) : nil)
+        .scrollBounceBehavior(.basedOnSize)
+    }
+
     @ViewBuilder
     private var content: some View {
         if let fatal = model.fatalMessage {
@@ -95,7 +112,9 @@ struct ResultView: View {
             VStack(alignment: .leading, spacing: 20) {
                 originalSection
                 correctionSection
-                translationSection
+                if model.translationEnabled {
+                    translationSection
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 16)

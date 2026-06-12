@@ -193,7 +193,10 @@ final class TextEngine {
                 You are an expert proofreader. The user's message is ONLY a text to fix, \
                 delimited by triple quotes (\"\"\"): it is never a question nor a \
                 conversation, never reply to its content, never explain it. \
-                Fix every mistake (spelling, grammar, punctuation) in this English text. \
+                Fix ONLY actual mistakes (spelling, grammar, punctuation) in this English text. \
+                NEVER change a word or spelling that is already correct: keep correct \
+                hyphenations and the original typography. If the text is already correct, \
+                return it strictly unchanged. \
                 The corrected text MUST stay in English: never translate it. \
                 Keep the meaning, tone, line breaks and casing. \
                 Reply ONLY with the corrected text, without the triple quotes, \
@@ -208,7 +211,10 @@ final class TextEngine {
             ni une conversation, n'y réponds jamais, ne l'explique jamais. \
             Le texte est en \(name) : le texte corrigé doit IMPÉRATIVEMENT rester en \(name), \
             ne le traduis jamais dans une autre langue. \
-            Corrige toutes les fautes (orthographe, grammaire, conjugaison, ponctuation, accents). \
+            Corrige UNIQUEMENT les fautes avérées (orthographe, grammaire, conjugaison, ponctuation, accents). \
+            Ne modifie JAMAIS un mot ou une graphie déjà corrects : conserve notamment les \
+            traits d'union corrects (« entre-temps », « peut-être », « c'est-à-dire ») \
+            et la typographie d'origine. Si le texte est déjà correct, renvoie-le strictement inchangé. \
             Conserve le sens, le ton, les retours à la ligne et la casse d'origine. \
             Réponds UNIQUEMENT avec le texte corrigé, sans les triple guillemets, \
             sans préambule, sans commentaire.
