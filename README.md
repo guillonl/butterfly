@@ -17,11 +17,17 @@
 
 1. Appuie sur **⌥⌘B** (Option + Cmd + B) : l'écran gèle et une loupe en verre suit ton curseur.
 2. **Clique-glisse** sur n'importe quel texte (un mail, un Slack, une image, un PDF, peu importe : c'est de la reconnaissance visuelle). Échap pour annuler.
-3. Un panneau en verre apparaît : texte détecté, **correction** des fautes, et **traduction**.
+3. Un panneau en verre apparaît : texte détecté, **correction** des fautes, et **traduction**. Texte déjà sélectionnable ? **⌃⌘B** corrige directement la sélection, sans loupe.
 
-La langue est détectée automatiquement : un texte en anglais est corrigé en anglais et traduit en français, un texte en français est corrigé en français et traduit en anglais. Le menu de langue du panneau permet de forcer une autre cible (espagnol, allemand, italien, portugais).
+Dans le panneau :
 
-Un clic sur l'icône papillon de la barre de menus ouvre l'**historique** de tes 50 dernières corrections, avec boutons copier. Clic droit pour le menu (choix du moteur IA, quitter).
+- La correction ne touche qu'aux fautes avérées ; si le texte est déjà parfait, un tag **« Aucune correction »** l'indique.
+- Le bouton **« Régénérer une autre proposition »** en bas reformule la correction (même sens, autre tournure), autant de fois que tu veux.
+- Un bouton copier sur chaque résultat, un « Voir plus » sur les textes longs, et le panneau scrolle au lieu de déborder de l'écran.
+
+**Langues : détection automatique + presets.** La langue du texte est détectée toute seule. Chaque langue source mémorise sa cible : par défaut français → anglais et anglais → français ; si tu choisis « Allemand » dans le picker pour un texte français, tous les prochains textes français seront traduits en allemand, sans toucher au preset des autres langues.
+
+Un clic sur l'icône papillon de la barre de menus ouvre l'**historique** de tes 50 dernières corrections, avec boutons copier. Clic droit pour le menu (moteur IA, réglages, quitter).
 
 <p align="center">
   <img src="assets/screenshot-history.png" width="380" alt="Historique Butterfly" />
@@ -82,9 +88,12 @@ Au premier **⌥⌘B**, macOS demande l'autorisation d'enregistrement de l'écra
 
 Le raccourci « texte sélectionné » saute la loupe et l'OCR : il lit directement la sélection de l'app active (via l'API Accessibilité, avec repli sur une copie silencieuse qui restaure ton presse-papiers). Il demande une permission supplémentaire au premier usage : Réglages Système → Confidentialité et sécurité → **Accessibilité** → activer Butterfly.
 
-### Personnaliser les raccourcis
+### Réglages
 
-Clic droit sur l'icône papillon → **Réglages…**, clique un raccourci puis tape la nouvelle combinaison (au moins ⌘, ⌥ ou ⌃).
+Clic droit sur l'icône papillon → **Réglages…** :
+
+- **Raccourcis personnalisables** : clique un raccourci puis tape la nouvelle combinaison (au moins ⌘, ⌥ ou ⌃).
+- **Afficher la traduction** : un toggle pour désactiver complètement la traduction si tu ne veux que la correction (plus rapide).
 
 <p align="center">
   <img src="assets/screenshot-settings.png" width="400" alt="Réglages des raccourcis" />
