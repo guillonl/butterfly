@@ -1,6 +1,27 @@
 import AppKit
 import SwiftUI
 
+/// Cible de traduction mémorisée PAR langue source : choisir « allemand »
+/// pour un texte français est retenu pour tous les prochains textes français,
+/// sans toucher au preset des autres langues. Défauts : fr→en, en→fr.
+enum LanguagePresets {
+    private static let key = "targetPresets"
+
+    static func target(for source: String) -> String {
+        let src = String(source.prefix(2))
+        let dict = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
+        if let saved = dict[src] { return saved }
+        return src == "en" ? "fr" : "en"
+    }
+
+    static func save(source: String, target: String) {
+        let src = String(source.prefix(2))
+        var dict = UserDefaults.standard.dictionary(forKey: key) as? [String: String] ?? [:]
+        dict[src] = target
+        UserDefaults.standard.set(dict, forKey: key)
+    }
+}
+
 /// État observable du panneau résultat. Chaque section avance indépendamment.
 @MainActor
 final class ResultModel: ObservableObject {
@@ -15,13 +36,25 @@ final class ResultModel: ObservableObject {
     @Published var translation: SectionState = .loading
     @Published var fatalMessage: String?
     @Published var engineLabel: String = ""
-    /// Cible choisie automatiquement à chaque capture (texte anglais → français,
-    /// sinon → anglais) ; le picker du panneau permet de changer ponctuellement.
+    /// Cible appliquée automatiquement à chaque capture depuis les presets
+    /// par langue source ; un changement via le picker met le preset à jour.
     @Published var targetLanguage: String = "en" {
         didSet {
             guard targetLanguage != oldValue else { return }
+            if !isApplyingPreset {
+                LanguagePresets.save(source: sourceLanguage, target: targetLanguage)
+            }
             retranslate()
         }
+    }
+    private var isApplyingPreset = false
+
+    /// Initialisation des langues sans réécrire le preset.
+    func applyLanguages(source: String, target: String) {
+        sourceLanguage = source
+        isApplyingPreset = true
+        targetLanguage = target
+        isApplyingPreset = false
     }
 
     var backend: EngineBackend?
@@ -34,6 +67,36 @@ final class ResultModel: ObservableObject {
 
     func fail(_ message: String) {
         fatalMessage = message
+    }
+
+    /// Régénère la correction avec une autre formulation, puis retraduit.
+    func regenerateCorrection() {
+        guard let backend, let original,
+              case .value(let previous) = correction else { return }
+        correction = .loading
+        Task { [weak self] in
+            do {
+                let alternative = try await TextEngine.shared.regenerate(
+                    original,
+                    source: self?.sourceLanguage ?? "fr",
+                    previous: previous,
+                    using: backend
+                ) { partial in
+                    DispatchQueue.main.async { [weak self] in
+                        self?.correction = .value(partial)
+                    }
+                }
+                guard let self else { return }
+                self.correction = .value(alternative)
+                if let id = self.historyID {
+                    HistoryStore.shared.updateCorrection(id: id, corrected: alternative)
+                }
+                self.translationSource = alternative
+                self.retranslate()
+            } catch {
+                self?.correction = .failure(L10n.t("panel.error"))
+            }
+        }
     }
 
     func retranslate() {

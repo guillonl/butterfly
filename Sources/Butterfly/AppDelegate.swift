@@ -237,12 +237,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Pipeline commun aux deux entrées (OCR de zone, texte sélectionné) :
     /// détection de langue, historique, correction streamée puis traduction.
     private func processText(_ text: String, model: ResultModel) async {
-        // Cible automatique : texte anglais → français, sinon → anglais.
+        // Cible automatique : preset mémorisé par langue source
+        // (défauts : fr → en, en → fr).
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)
         let detected = recognizer.dominantLanguage?.rawValue ?? "fr"
-        model.sourceLanguage = detected
-        model.targetLanguage = detected.hasPrefix("en") ? "fr" : "en"
+        model.applyLanguages(source: detected, target: LanguagePresets.target(for: detected))
         model.original = text
 
         let entryID = UUID()

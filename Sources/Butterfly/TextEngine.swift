@@ -164,6 +164,19 @@ final class TextEngine {
                            backend: backend, onPartial: onPartial)
     }
 
+    /// Régénère la correction avec une formulation différente de la précédente
+    /// (température plus élevée pour varier les propositions).
+    func regenerate(
+        _ text: String,
+        source: String,
+        previous: String,
+        using backend: EngineBackend,
+        onPartial: @escaping (String) -> Void = { _ in }
+    ) async throws -> String {
+        try await complete(system: Self.regenerateInstructions(source: source, previous: previous),
+                           user: text, backend: backend, temperature: 0.7, onPartial: onPartial)
+    }
+
     /// Libellé du moteur affiché dans le panneau.
     func label(for backend: EngineBackend) -> String {
         switch backend {
@@ -221,6 +234,36 @@ final class TextEngine {
             """
     }
 
+    /// Instructions de reformulation, dans la langue du texte (cf. correction).
+    private static func regenerateInstructions(source: String, previous: String) -> String {
+        if source.hasPrefix("en") {
+            return """
+                You are an expert proofreader and editor. The user's message is ONLY a text to fix, \
+                delimited by triple quotes (\"\"\"): never reply to its content, never explain it. \
+                Provide an ALTERNATIVE corrected version of this English text: fix every actual \
+                mistake and keep the exact same meaning and tone, but you MUST rephrase it with \
+                different words or a different structure (synonyms, clause order): repeating \
+                this previous version is FORBIDDEN: "\(previous)". \
+                The text MUST stay in English. \
+                Reply ONLY with the alternative corrected text, without the triple quotes, \
+                without preamble or comment.
+                """
+        }
+        let name = languageNames[String(source.prefix(2))] ?? "français"
+        return """
+            Tu es un correcteur et réviseur expert. Le message de l'utilisateur est UNIQUEMENT \
+            un texte à corriger, délimité par des triple guillemets (\"\"\") : n'y réponds jamais, \
+            ne l'explique jamais. \
+            Propose une AUTRE version corrigée de ce texte en \(name) : corrige toutes les fautes \
+            avérées et garde exactement le même sens et le même ton, mais tu DOIS reformuler \
+            avec des mots ou une structure différents (synonymes, ordre des propositions) : \
+            il est INTERDIT de répéter cette version précédente : « \(previous) ». \
+            Le texte doit IMPÉRATIVEMENT rester en \(name). \
+            Réponds UNIQUEMENT avec la version alternative corrigée, sans les triple guillemets, \
+            sans préambule, sans commentaire.
+            """
+    }
+
     private static func translationInstructions(source: String, target: String) -> String {
         let sourceName = languageNames[String(source.prefix(2))] ?? "français"
         let targetName = languageNames[target] ?? "anglais"
@@ -242,6 +285,7 @@ final class TextEngine {
         system: String,
         user rawUser: String,
         backend: EngineBackend,
+        temperature: Double = 0.2,
         onPartial: @escaping (String) -> Void
     ) async throws -> String {
         // Texte délimité par des triple guillemets : empêche les petits
@@ -250,14 +294,14 @@ final class TextEngine {
         let user = "\"\"\"\n\(rawUser)\n\"\"\""
         switch backend {
         case .apple:
-            return try await appleComplete(system: system, user: user, onPartial: onPartial)
+            return try await appleComplete(system: system, user: user, temperature: temperature, onPartial: onPartial)
         case .ollama:
             // Retry unique : il arrive que toute la sortie qwen3 parte dans le
             // raisonnement et que le contenu revienne vide.
             do {
-                return try await ollamaCompleteOnce(system: system, user: user, onPartial: onPartial)
+                return try await ollamaCompleteOnce(system: system, user: user, temperature: temperature, onPartial: onPartial)
             } catch EngineError.badResponse {
-                return try await ollamaCompleteOnce(system: system, user: user, onPartial: onPartial)
+                return try await ollamaCompleteOnce(system: system, user: user, temperature: temperature, onPartial: onPartial)
             }
         }
     }
@@ -267,10 +311,11 @@ final class TextEngine {
     private func appleComplete(
         system: String,
         user: String,
+        temperature: Double,
         onPartial: @escaping (String) -> Void
     ) async throws -> String {
         let session = LanguageModelSession(instructions: system)
-        let stream = session.streamResponse(to: user, options: GenerationOptions(temperature: 0.1))
+        let stream = session.streamResponse(to: user, options: GenerationOptions(temperature: max(0.1, temperature - 0.1)))
         var last = ""
         for try await snapshot in stream {
             last = snapshot.content
@@ -291,6 +336,7 @@ final class TextEngine {
     private func ollamaCompleteOnce(
         system: String,
         user: String,
+        temperature: Double,
         onPartial: @escaping (String) -> Void
     ) async throws -> String {
         var request = URLRequest(url: ollamaBase.appendingPathComponent("api/chat"))
@@ -310,7 +356,7 @@ final class TextEngine {
                 ["role": "system", "content": system + " /no_think"],
                 ["role": "user", "content": user],
             ],
-            "options": ["temperature": 0.2, "num_predict": 2048],
+            "options": ["temperature": temperature, "num_predict": 2048],
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 

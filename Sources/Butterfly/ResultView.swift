@@ -115,6 +115,9 @@ struct ResultView: View {
                 if model.translationEnabled {
                     translationSection
                 }
+                if case .value = model.correction {
+                    regenerateButton
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 16)
@@ -162,6 +165,24 @@ struct ResultView: View {
     /// Heuristique : le texte détecté risque d'être tronqué à 3 lignes.
     private func needsExpansion(_ text: String) -> Bool {
         text.count > 150 || text.filter { $0 == "\n" }.count >= collapsedLineLimit
+    }
+
+    /// Bouton « Régénérer une autre proposition », tout en bas du panneau.
+    private var regenerateButton: some View {
+        Button {
+            model.regenerateCorrection()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(L10n.t("panel.regenerate"))
+            }
+            .font(.system(size: 12, weight: .medium))
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var correctionSection: some View {
