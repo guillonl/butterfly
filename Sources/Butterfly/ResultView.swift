@@ -8,6 +8,9 @@ struct ResultView: View {
 
     /// Hauteur max du panneau (bornée à l'écran) : au-delà, le contenu scrolle.
     var maxHeight: CGFloat = .infinity
+    /// Mode fluide (taille de fenêtre mémorisée) : la vue remplit la fenêtre
+    /// au lieu de la piloter.
+    var fluid = false
     @State private var appeared = false
     @State private var originalExpanded = false
     @State private var contentHeight: CGFloat = 0
@@ -26,7 +29,12 @@ struct ResultView: View {
                 .padding(.horizontal, 24)
             scrollableContent
         }
-        .frame(width: cardWidth, alignment: .leading)
+        .frame(width: fluid ? nil : cardWidth, alignment: .leading)
+        .frame(
+            maxWidth: fluid ? .infinity : nil,
+            maxHeight: fluid ? .infinity : nil,
+            alignment: .top
+        )
         .glassEffect(.regular, in: .rect(cornerRadius: 28))
         // Le backdrop du verre occupe les bounds carrés de la fenêtre :
         // sans clip, ses bords débordent des coins arrondis.
@@ -87,14 +95,24 @@ struct ResultView: View {
 
     /// Le contenu suit sa hauteur naturelle tant qu'il tient dans l'écran,
     /// puis devient scrollable au lieu de faire déborder le panneau.
+    /// En mode fluide, il remplit simplement la fenêtre.
+    @ViewBuilder
     private var scrollableContent: some View {
-        let available = max(maxHeight - headerHeight, 120)
-        return ScrollView {
-            content
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+        if fluid {
+            ScrollView {
+                content
+            }
+            .frame(maxHeight: .infinity)
+            .scrollBounceBehavior(.basedOnSize)
+        } else {
+            let available = max(maxHeight - headerHeight, 120)
+            ScrollView {
+                content
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+            }
+            .frame(height: contentHeight > 0 ? min(contentHeight, available) : nil)
+            .scrollBounceBehavior(.basedOnSize)
         }
-        .frame(height: contentHeight > 0 ? min(contentHeight, available) : nil)
-        .scrollBounceBehavior(.basedOnSize)
     }
 
     @ViewBuilder
@@ -111,11 +129,13 @@ struct ResultView: View {
         } else {
             VStack(alignment: .leading, spacing: 20) {
                 originalSection
-                correctionSection
-                if model.translationEnabled {
+                if model.mode.showsCorrection {
+                    correctionSection
+                }
+                if model.mode.showsTranslation {
                     translationSection
                 }
-                if case .value = model.correction {
+                if model.mode.showsCorrection, case .value = model.correction {
                     regenerateButton
                 }
             }

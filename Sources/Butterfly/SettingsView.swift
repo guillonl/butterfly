@@ -15,10 +15,7 @@ struct SettingsView: View {
     @State private var errorMessage: String?
     @State private var keyMonitor: Any?
     @State private var appeared = false
-    @State private var showTranslation: Bool =
-        UserDefaults.standard.object(forKey: "showTranslation") == nil
-            ? true
-            : UserDefaults.standard.bool(forKey: "showTranslation")
+    @State private var mode: ProcessingMode = .current
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -40,26 +37,33 @@ struct SettingsView: View {
                     hint: L10n.t("settings.selectionHint")
                 )
                 Divider().opacity(0.3)
-                HStack(spacing: 12) {
-                    Image(systemName: "globe")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 24)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(L10n.t("settings.showTranslation"))
-                            .font(.system(size: 13, weight: .medium))
-                        Text(L10n.t("settings.showTranslationHint"))
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                    }
-                    Spacer(minLength: 12)
-                    Toggle("", isOn: $showTranslation)
-                        .toggleStyle(.switch)
-                        .controlSize(.small)
-                        .labelsHidden()
-                        .onChange(of: showTranslation) { _, newValue in
-                            UserDefaults.standard.set(newValue, forKey: "showTranslation")
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.t("settings.mode"))
+                                .font(.system(size: 13, weight: .medium))
+                            Text(L10n.t("settings.modeHint"))
+                                .font(.system(size: 11))
+                                .foregroundStyle(.tertiary)
                         }
+                        Spacer(minLength: 0)
+                    }
+                    Picker("", selection: $mode) {
+                        ForEach(ProcessingMode.allCases, id: \.self) { option in
+                            Text(option.label).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .padding(.leading, 36)
+                    .onChange(of: mode) { _, newValue in
+                        ProcessingMode.save(newValue)
+                    }
                 }
                 if let errorMessage {
                     HStack(spacing: 6) {

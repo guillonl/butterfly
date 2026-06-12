@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let resultPanel = ResultPanelController()
     private let historyPanel = HistoryPanelController()
     private let settingsPanel = SettingsPanelController()
+    private let wordBubble = WordBubbleController()
     private var capturing = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -46,6 +47,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--demo-settings") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 self?.settingsPanel.show()
+            }
+        }
+        if CommandLine.arguments.contains("--demo-bubble") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                guard let self, let screen = NSScreen.main else { return }
+                let center = CGRect(x: screen.frame.width / 2 - 140, y: screen.frame.height / 2 - 160, width: 280, height: 4)
+                let bubble = self.wordBubble.show(word: "améliorer", sourceLanguage: "fr", near: center, on: screen)
+                Task { @MainActor in
+                    guard let backend = await TextEngine.shared.resolveBackend() else { return }
+                    bubble.backend = backend
+                    bubble.load()
+                }
             }
         }
     }
@@ -263,20 +276,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.backend = backend
         model.engineLabel = TextEngine.shared.label(for: backend)
 
-        // Correction d'abord (streamée) ; la traduction part de la version corrigée.
-        var translationSource = text
-        do {
-            let corrected = try await TextEngine.shared.correct(text, source: detected, using: backend) { partial in
-                DispatchQueue.main.async { model.correction = .value(partial) }
+        // Selon le mode : correction d'abord (la traduction part de la version
+        // corrigée), ou traduction directe de l'original.
+        if model.mode.showsCorrection {
+            var translationSource = text
+            do {
+                let corrected = try await TextEngine.shared.correct(text, source: detected, using: backend) { partial in
+                    DispatchQueue.main.async { model.correction = .value(partial) }
+                }
+                translationSource = corrected
+                model.correction = .value(corrected)
+                HistoryStore.shared.updateCorrection(id: entryID, corrected: corrected)
+            } catch {
+                model.correction = .failure(L10n.t("panel.error"))
             }
-            translationSource = corrected
-            model.correction = .value(corrected)
-            HistoryStore.shared.updateCorrection(id: entryID, corrected: corrected)
-        } catch {
-            model.correction = .failure(L10n.t("panel.error"))
+            model.translationSource = translationSource
+        } else {
+            model.translationSource = text
         }
-
-        model.translationSource = translationSource
         model.retranslate()
     }
 
@@ -312,14 +329,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         Task { @MainActor in
-            let text = await SelectedTextService.fetchSelectedText()
+            let fetched = await SelectedTextService.fetchSelectedText()
+            let text = fetched?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            // Mot ou expression courte → bulle d'alternatives au lieu du panneau.
+            if !text.isEmpty, Self.isShortExpression(text) {
+                wordBubble.close()
+                let bubbleAnchor = CGRect(x: anchor.midX - 140, y: anchor.minY, width: 280, height: 4)
+                let bubble = wordBubble.show(
+                    word: text,
+                    sourceLanguage: Self.detectLanguage(of: text),
+                    near: bubbleAnchor,
+                    on: screen
+                )
+                guard let backend = await TextEngine.shared.resolveBackend() else {
+                    bubble.phase = .failure(L10n.t("panel.engineMissing"))
+                    return
+                }
+                bubble.backend = backend
+                bubble.load()
+                return
+            }
+
             let model = resultPanel.show(near: anchor, on: screen)
-            guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            guard !text.isEmpty else {
                 model.fail(L10n.t("panel.noSelection"))
                 return
             }
             await processText(text, model: model)
         }
+    }
+
+    /// Un « mot » pour la bulle : 3 mots max, court, sans retour à la ligne.
+    private static func isShortExpression(_ text: String) -> Bool {
+        guard !text.contains("\n"), text.count <= 40 else { return false }
+        return text.split(separator: " ").count <= 3
+    }
+
+    private static func detectLanguage(of text: String) -> String {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        return recognizer.dominantLanguage?.rawValue ?? "fr"
     }
 
     private func showAccessibilityAlert() {

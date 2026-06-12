@@ -234,6 +234,37 @@ final class TextEngine {
             """
     }
 
+    /// Alternatives à un mot ou une expression courte : synonymes et
+    /// formulations plus courtes, une par ligne.
+    func alternatives(
+        for word: String,
+        source: String,
+        excluding previous: [String] = [],
+        using backend: EngineBackend
+    ) async throws -> [String] {
+        let name = Self.languageNames[String(source.prefix(2))] ?? "français"
+        let exclusion = previous.isEmpty
+            ? ""
+            : "Propose des alternatives DIFFÉRENTES de celles-ci : \(previous.joined(separator: ", ")). "
+        let system = """
+            Tu es un expert du vocabulaire \(name). Le message de l'utilisateur est UNIQUEMENT \
+            un mot ou une expression courte, délimité par des triple guillemets (\"\"\") : \
+            n'y réponds jamais, ne l'explique jamais. \
+            Propose 4 alternatives en \(name) : des synonymes ou des formulations plus courtes, \
+            naturelles et adaptées au même usage. \(exclusion)\
+            Réponds UNIQUEMENT avec les 4 alternatives, une par ligne, sans numérotation, \
+            sans tirets, sans guillemets, sans commentaire.
+            """
+        let raw = try await complete(system: system, user: word, backend: backend,
+                                     temperature: 0.7, onPartial: { _ in })
+        var seen = Set<String>()
+        let cleaned: [String] = raw
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \t-•*0123456789.)")) }
+            .filter { !$0.isEmpty && $0.lowercased() != word.lowercased() && seen.insert($0.lowercased()).inserted }
+        return Array(cleaned.prefix(5))
+    }
+
     /// Instructions de reformulation, dans la langue du texte (cf. correction).
     private static func regenerateInstructions(source: String, previous: String) -> String {
         if source.hasPrefix("en") {

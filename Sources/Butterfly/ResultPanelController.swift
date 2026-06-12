@@ -1,6 +1,56 @@
 import AppKit
 import SwiftUI
 
+/// Ce que Butterfly fait d'une capture : corriger, traduire, ou les deux.
+enum ProcessingMode: String, CaseIterable {
+    case both
+    case correctOnly
+    case translateOnly
+
+    static var current: ProcessingMode {
+        if let raw = UserDefaults.standard.string(forKey: "processingMode"),
+           let mode = ProcessingMode(rawValue: raw) {
+            return mode
+        }
+        // Migration depuis l'ancien toggle « Afficher la traduction »
+        if UserDefaults.standard.object(forKey: "showTranslation") != nil,
+           UserDefaults.standard.bool(forKey: "showTranslation") == false {
+            return .correctOnly
+        }
+        return .both
+    }
+
+    static func save(_ mode: ProcessingMode) {
+        UserDefaults.standard.set(mode.rawValue, forKey: "processingMode")
+    }
+
+    var showsCorrection: Bool { self != .translateOnly }
+    var showsTranslation: Bool { self != .correctOnly }
+
+    var label: String {
+        switch self {
+        case .both: return L10n.t("mode.both")
+        case .correctOnly: return L10n.t("mode.correct")
+        case .translateOnly: return L10n.t("mode.translate")
+        }
+    }
+}
+
+/// Taille du panneau résultat mémorisée après un redimensionnement manuel.
+enum PanelSizeStore {
+    private static let key = "resultPanelSize"
+
+    static var saved: NSSize? {
+        guard let dict = UserDefaults.standard.dictionary(forKey: key),
+              let w = dict["w"] as? Double, let h = dict["h"] as? Double else { return nil }
+        return NSSize(width: w, height: h)
+    }
+
+    static func save(_ size: NSSize) {
+        UserDefaults.standard.set(["w": size.width, "h": size.height], forKey: key)
+    }
+}
+
 /// Cible de traduction mémorisée PAR langue source : choisir « allemand »
 /// pour un texte français est retenu pour tous les prochains textes français,
 /// sans toucher au preset des autres langues. Défauts : fr→en, en→fr.
@@ -61,8 +111,9 @@ final class ResultModel: ObservableObject {
     var translationSource: String?
     var sourceLanguage: String = "fr"
     var historyID: UUID?
-    /// Réglage « Afficher la traduction » (toggle des Réglages), lu à l'ouverture.
-    var translationEnabled = true
+    /// Mode d'action (corriger / traduire / les deux), lu à l'ouverture.
+    var mode: ProcessingMode = .both
+    var translationEnabled: Bool { mode.showsTranslation }
     private var translationTask: Task<Void, Never>?
 
     func fail(_ message: String) {
@@ -134,9 +185,12 @@ final class ResultPanel: NSPanel {
 @MainActor
 final class ResultPanelController {
     private var panel: ResultPanel?
+    private var hostRef: NSHostingController<ResultView>?
     private var keyMonitor: Any?
     private var resizeObserver: NSObjectProtocol?
     private var moveObserver: NSObjectProtocol?
+    private var liveResizeStartObserver: NSObjectProtocol?
+    private var liveResizeEndObserver: NSObjectProtocol?
     private var topLeft: NSPoint = .zero
     private var programmaticMove = false
     private(set) var model: ResultModel?
@@ -151,10 +205,13 @@ final class ResultPanelController {
         close()
 
         let model = ResultModel()
-        model.translationEnabled = UserDefaults.standard.object(forKey: "showTranslation") == nil
-            ? true
-            : UserDefaults.standard.bool(forKey: "showTranslation")
+        model.mode = ProcessingMode.current
         self.model = model
+
+        // Taille mémorisée d'un redimensionnement manuel précédent : le
+        // panneau démarre alors en mode « fluide » (la fenêtre pilote la vue).
+        let savedSize = PanelSizeStore.saved
+        let initialSize = savedSize ?? NSSize(width: panelWidth, height: estimatedHeight)
 
         // Overlay (origine haut-gauche) → coordonnées globales AppKit (bas-gauche)
         let sf = screen.frame
@@ -166,22 +223,25 @@ final class ResultPanelController {
         )
 
         let visible = screen.visibleFrame
-        var x = globalRect.midX - panelWidth / 2
-        x = max(visible.minX + 8, min(x, visible.maxX - panelWidth - 8))
+        var x = globalRect.midX - initialSize.width / 2
+        x = max(visible.minX + 8, min(x, visible.maxX - initialSize.width - 8))
 
         // Sous la sélection si possible, sinon au-dessus
         var top = globalRect.minY - 16
-        if top - estimatedHeight < visible.minY + 8 {
-            top = min(globalRect.maxY + 16 + estimatedHeight, visible.maxY - 8)
+        if top - initialSize.height < visible.minY + 8 {
+            top = min(globalRect.maxY + 16 + initialSize.height, visible.maxY - 8)
         }
         topLeft = NSPoint(x: x, y: top)
 
+        // .resizable sur une fenêtre borderless : redimensionnement par les
+        // bords uniquement (curseur de resize au survol), aucune poignée.
         let panel = ResultPanel(
-            contentRect: NSRect(x: x, y: top - estimatedHeight, width: panelWidth, height: estimatedHeight),
-            styleMask: [.borderless, .nonactivatingPanel],
+            contentRect: NSRect(x: x, y: top - initialSize.height, width: initialSize.width, height: initialSize.height),
+            styleMask: [.borderless, .nonactivatingPanel, .resizable],
             backing: .buffered,
             defer: false
         )
+        panel.minSize = NSSize(width: 380, height: 280)
         panel.level = .floating
         panel.isFloatingPanel = true
         panel.backgroundColor = .clear
@@ -199,11 +259,18 @@ final class ResultPanelController {
             rootView: ResultView(
                 model: model,
                 onClose: { [weak self] in self?.close() },
-                maxHeight: visible.height - 32
+                maxHeight: visible.height - 32,
+                fluid: savedSize != nil
             )
         )
-        host.sizingOptions = [.preferredContentSize]
+        // En mode fluide (taille mémorisée), la fenêtre garde sa taille et la
+        // vue la remplit ; sinon la vue pilote la taille de la fenêtre.
+        host.sizingOptions = savedSize == nil ? [.preferredContentSize] : []
+        self.hostRef = host
         panel.contentViewController = host
+        if savedSize != nil {
+            panel.setContentSize(initialSize)
+        }
 
         self.panel = panel
         programmaticMove = true
@@ -220,6 +287,8 @@ final class ResultPanelController {
             forName: NSWindow.didResizeNotification, object: panel, queue: .main
         ) { [weak self] _ in
             guard let self, let panel = self.panel else { return }
+            // Pendant un redimensionnement manuel, ne pas lutter avec l'utilisateur.
+            guard !panel.inLiveResize else { return }
             self.programmaticMove = true
             panel.setFrameTopLeftPoint(self.topLeft)
             self.clampIntoScreen(panel)
@@ -227,6 +296,29 @@ final class ResultPanelController {
             // L'ombre native est un snapshot : la rafraîchir à chaque
             // changement de taille (stream, animations) évite les contours
             // fantômes de l'ancienne forme.
+            panel.invalidateShadow()
+        }
+        // Redimensionnement manuel : passer la vue en mode fluide dès le début
+        // du geste (sinon le hosting réimpose la taille du contenu), puis
+        // mémoriser la taille choisie pour les prochains panneaux.
+        liveResizeStartObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willStartLiveResizeNotification, object: panel, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.hostRef?.sizingOptions = []
+            self.hostRef?.rootView = ResultView(
+                model: model,
+                onClose: { [weak self] in self?.close() },
+                maxHeight: .infinity,
+                fluid: true
+            )
+        }
+        liveResizeEndObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didEndLiveResizeNotification, object: panel, queue: .main
+        ) { [weak self] _ in
+            guard let self, let panel = self.panel else { return }
+            PanelSizeStore.save(panel.frame.size)
+            self.topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
             panel.invalidateShadow()
         }
         // Si Léo déplace le panneau à la main, on ré-ancre sur sa position.
@@ -275,8 +367,17 @@ final class ResultPanelController {
             NotificationCenter.default.removeObserver(moveObserver)
             self.moveObserver = nil
         }
+        if let liveResizeStartObserver {
+            NotificationCenter.default.removeObserver(liveResizeStartObserver)
+            self.liveResizeStartObserver = nil
+        }
+        if let liveResizeEndObserver {
+            NotificationCenter.default.removeObserver(liveResizeEndObserver)
+            self.liveResizeEndObserver = nil
+        }
         panel?.orderOut(nil)
         panel = nil
+        hostRef = nil
         model = nil
     }
 }
