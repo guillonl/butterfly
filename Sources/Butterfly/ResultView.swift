@@ -11,6 +11,8 @@ struct ResultView: View {
     /// Mode fluide (taille de fenêtre mémorisée) : la vue remplit la fenêtre
     /// au lieu de la piloter.
     var fluid = false
+    /// Clic sur un mot de la correction ou de la traduction (bulle d'alternatives).
+    var onWordTap: ((String) -> Void)?
     @State private var appeared = false
     @State private var originalExpanded = false
     @State private var contentHeight: CGFloat = 0
@@ -89,6 +91,10 @@ struct ResultView: View {
         .padding(.horizontal, 24)
         .padding(.top, 20)
         .padding(.bottom, 16)
+        .contentShape(Rectangle())
+        // Seul le header déplace la fenêtre : le reste du panneau est réservé
+        // à la sélection de texte.
+        .gesture(WindowDragGesture())
     }
 
     // MARK: - Contenu
@@ -275,11 +281,12 @@ struct ResultView: View {
             ShimmerLines()
         case .value(let text):
             HStack(alignment: .top, spacing: 12) {
-                Text(text)
-                    .font(.system(size: emphasized ? 14 : 13, weight: emphasized ? .medium : .regular))
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                TappableText(
+                    text: text,
+                    font: .system(size: emphasized ? 14 : 13, weight: emphasized ? .medium : .regular),
+                    onWordTap: onWordTap
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
                 CopyButton(text: text)
             }
         case .failure(let message):
@@ -303,6 +310,84 @@ struct ResultView: View {
 }
 
 // MARK: - Composants
+
+/// Texte dont chaque mot est cliquable : soulignement au survol, un clic
+/// remonte le mot (nettoyé de sa ponctuation) pour la bulle d'alternatives.
+struct TappableText: View {
+    let text: String
+    let font: Font
+    var onWordTap: ((String) -> Void)?
+
+    @State private var hoveredIndex: Int?
+
+    private var tokens: [String] {
+        text.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+    }
+
+    var body: some View {
+        FlowLayout(horizontalSpacing: 4, verticalSpacing: 4) {
+            ForEach(Array(tokens.enumerated()), id: \.offset) { index, token in
+                Text(token)
+                    .font(font)
+                    .underline(hoveredIndex == index, color: .cyan)
+                    .onHover { inside in
+                        if inside {
+                            hoveredIndex = index
+                        } else if hoveredIndex == index {
+                            hoveredIndex = nil
+                        }
+                    }
+                    .onTapGesture {
+                        let word = token.trimmingCharacters(in: .punctuationCharacters)
+                        guard !word.isEmpty else { return }
+                        onWordTap?(word)
+                    }
+            }
+        }
+    }
+}
+
+/// Disposition en lignes avec retour automatique (pour les mots cliquables).
+struct FlowLayout: Layout {
+    var horizontalSpacing: CGFloat = 4
+    var verticalSpacing: CGFloat = 4
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0, widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += lineHeight + verticalSpacing
+                lineHeight = 0
+            }
+            x += size.width + horizontalSpacing
+            lineHeight = max(lineHeight, size.height)
+            widest = max(widest, x - horizontalSpacing)
+        }
+        return CGSize(width: proposal.width ?? widest, height: y + lineHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > bounds.width {
+                x = 0
+                y += lineHeight + verticalSpacing
+                lineHeight = 0
+            }
+            subview.place(
+                at: CGPoint(x: bounds.minX + x, y: bounds.minY + y),
+                anchor: .topLeading,
+                proposal: .unspecified
+            )
+            x += size.width + horizontalSpacing
+            lineHeight = max(lineHeight, size.height)
+        }
+    }
+}
 
 /// Bouton copier rond en verre, feedback ✓ animé.
 struct CopyButton: View {

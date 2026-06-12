@@ -30,6 +30,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
 
+        // Surligner un mot dans le panneau résultat → bulle au-dessus du mot.
+        resultPanel.onWordSelected = { [weak self] word, mouseGlobal in
+            self?.showWordBubble(word: word, at: mouseGlobal)
+        }
+        // Échap ferme la bulle d'abord, le panneau ensuite.
+        resultPanel.shouldIgnoreEscape = { [weak self] in
+            self?.wordBubble.isVisible == true
+        }
+
         if CommandLine.arguments.contains("--selftest") {
             runSelfTest()
         }
@@ -332,25 +341,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let fetched = await SelectedTextService.fetchSelectedText()
             let text = fetched?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
-            // Mot ou expression courte → bulle d'alternatives au lieu du panneau.
-            if !text.isEmpty, Self.isShortExpression(text) {
-                wordBubble.close()
-                let bubbleAnchor = CGRect(x: anchor.midX - 140, y: anchor.minY, width: 280, height: 4)
-                let bubble = wordBubble.show(
-                    word: text,
-                    sourceLanguage: Self.detectLanguage(of: text),
-                    near: bubbleAnchor,
-                    on: screen
-                )
-                guard let backend = await TextEngine.shared.resolveBackend() else {
-                    bubble.phase = .failure(L10n.t("panel.engineMissing"))
-                    return
-                }
-                bubble.backend = backend
-                bubble.load()
-                return
-            }
-
             let model = resultPanel.show(near: anchor, on: screen)
             guard !text.isEmpty else {
                 model.fail(L10n.t("panel.noSelection"))
@@ -361,7 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Un « mot » pour la bulle : 3 mots max, court, sans retour à la ligne.
-    private static func isShortExpression(_ text: String) -> Bool {
+    static func isShortExpression(_ text: String) -> Bool {
         guard !text.contains("\n"), text.count <= 40 else { return false }
         return text.split(separator: " ").count <= 3
     }
@@ -370,6 +360,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)
         return recognizer.dominantLanguage?.rawValue ?? "fr"
+    }
+
+    /// Mot surligné DANS le panneau résultat → bulle d'alternatives au-dessus
+    /// du mot, sans fermer le panneau.
+    private func showWordBubble(word: String, at mouseGlobal: NSPoint) {
+        if ProcessInfo.processInfo.environment["BUTTERFLY_DEBUG"] != nil {
+            FileHandle.standardError.write(Data("[bubble] tap word=\(word) at=\(mouseGlobal)\n".utf8))
+        }
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseGlobal, $0.frame, false) }) ?? NSScreen.main else { return }
+        let anchor = CGRect(
+            x: mouseGlobal.x - screen.frame.minX - 40,
+            y: screen.frame.maxY - mouseGlobal.y - 12,
+            width: 80,
+            height: 20
+        )
+        let bubble = wordBubble.show(
+            word: word,
+            sourceLanguage: Self.detectLanguage(of: word),
+            near: anchor,
+            on: screen,
+            anchorMode: .above,
+            takeFocus: false
+        )
+        Task { @MainActor in
+            guard let backend = await TextEngine.shared.resolveBackend() else {
+                bubble.phase = .failure(L10n.t("panel.engineMissing"))
+                return
+            }
+            bubble.backend = backend
+            bubble.load()
+        }
     }
 
     private func showAccessibilityAlert() {

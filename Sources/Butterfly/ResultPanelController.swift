@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import SwiftUI
 
 /// Ce que Butterfly fait d'une capture : corriger, traduire, ou les deux.
@@ -184,6 +185,11 @@ final class ResultPanel: NSPanel {
 
 @MainActor
 final class ResultPanelController {
+    /// Mot surligné dans le panneau (mot, position souris globale bas-gauche).
+    var onWordSelected: ((String, NSPoint) -> Void)?
+    /// Échap est ignoré quand ceci renvoie true (ex. bulle ouverte par-dessus).
+    var shouldIgnoreEscape: (() -> Bool)?
+
     private var panel: ResultPanel?
     private var hostRef: NSHostingController<ResultView>?
     private var keyMonitor: Any?
@@ -250,7 +256,9 @@ final class ResultPanelController {
         // du verre (une ombre SwiftUI dans une fenêtre transparente laisse un
         // halo rectangulaire disgracieux).
         panel.hasShadow = true
-        panel.isMovableByWindowBackground = true
+        // Déplacement par le header uniquement (WindowDragGesture dans la vue) :
+        // un drag sur le fond doit sélectionner le texte, pas bouger la fenêtre.
+        panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -260,7 +268,10 @@ final class ResultPanelController {
                 model: model,
                 onClose: { [weak self] in self?.close() },
                 maxHeight: visible.height - 32,
-                fluid: savedSize != nil
+                fluid: savedSize != nil,
+                onWordTap: { [weak self] word in
+                    self?.onWordSelected?(word, NSEvent.mouseLocation)
+                }
             )
         )
         // En mode fluide (taille mémorisée), la fenêtre garde sa taille et la
@@ -310,7 +321,10 @@ final class ResultPanelController {
                 model: model,
                 onClose: { [weak self] in self?.close() },
                 maxHeight: .infinity,
-                fluid: true
+                fluid: true,
+                onWordTap: { [weak self] word in
+                    self?.onWordSelected?(word, NSEvent.mouseLocation)
+                }
             )
         }
         liveResizeEndObserver = NotificationCenter.default.addObserver(
@@ -331,12 +345,16 @@ final class ResultPanelController {
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 53 { // Échap
+                if self?.shouldIgnoreEscape?() == true { return event }
                 self?.close()
                 return nil
             }
             return event
         }
 
+        // Surlignage d'un mot dans le panneau : à la fin du geste, lire la
+        // sélection via l'accessibilité de notre propre process et remonter
+        // le mot (la bulle s'ouvre au-dessus, sans fermer le panneau).
         return model
     }
 

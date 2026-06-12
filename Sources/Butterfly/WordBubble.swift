@@ -175,16 +175,33 @@ struct WordBubbleView: View {
 /// Contrôleur de la bulle, ancrée près du mot (position souris).
 @MainActor
 final class WordBubbleController {
+    enum AnchorMode {
+        case below // sous l'ancre, ancrée par le haut (grandit vers le bas)
+        case above // au-dessus de l'ancre, ancrée par le bas (grandit vers le haut)
+    }
+
     private var panel: ResultPanel?
     private var hostRef: NSHostingController<WordBubbleView>?
     private var monitors: [Any] = []
+    private var anchorMode: AnchorMode = .below
     private var topLeft: NSPoint = .zero
+    private var bottomLeft: NSPoint = .zero
     private var resizeObserver: NSObjectProtocol?
     private(set) var model: WordBubbleModel?
 
+    var isVisible: Bool { panel != nil }
+
     @discardableResult
-    func show(word: String, sourceLanguage: String, near anchorTopLeft: CGRect, on screen: NSScreen) -> WordBubbleModel {
+    func show(
+        word: String,
+        sourceLanguage: String,
+        near anchorTopLeft: CGRect,
+        on screen: NSScreen,
+        anchorMode: AnchorMode = .below,
+        takeFocus: Bool = true
+    ) -> WordBubbleModel {
         close()
+        self.anchorMode = anchorMode
 
         let model = WordBubbleModel(word: word, sourceLanguage: sourceLanguage)
         self.model = model
@@ -202,8 +219,13 @@ final class WordBubbleController {
         let visible = screen.visibleFrame
         var x = globalRect.midX - width / 2
         x = max(visible.minX + 8, min(x, visible.maxX - width - 8))
+
         var top = globalRect.minY - 12
-        if top - estimated < visible.minY + 8 {
+        if anchorMode == .above {
+            // Le bas de la bulle reste juste au-dessus du mot.
+            bottomLeft = NSPoint(x: x, y: min(globalRect.maxY + 8, visible.maxY - 8))
+            top = bottomLeft.y + estimated
+        } else if top - estimated < visible.minY + 8 {
             top = min(globalRect.maxY + 12 + estimated, visible.maxY - 8)
         }
         topLeft = NSPoint(x: x, y: top)
@@ -231,8 +253,18 @@ final class WordBubbleController {
         panel.contentViewController = host
 
         self.panel = panel
-        panel.setFrameTopLeftPoint(topLeft)
-        panel.makeKeyAndOrderFront(nil)
+        if anchorMode == .above {
+            panel.setFrameOrigin(bottomLeft)
+        } else {
+            panel.setFrameTopLeftPoint(topLeft)
+        }
+        // Sans takeFocus, le panneau résultat garde le focus (et la sélection
+        // de texte reste visible) pendant que la bulle s'affiche par-dessus.
+        if takeFocus {
+            panel.makeKeyAndOrderFront(nil)
+        } else {
+            panel.orderFrontRegardless()
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak panel] in
             panel?.invalidateShadow()
         }
@@ -241,7 +273,11 @@ final class WordBubbleController {
             forName: NSWindow.didResizeNotification, object: panel, queue: .main
         ) { [weak self] _ in
             guard let self, let panel = self.panel else { return }
-            panel.setFrameTopLeftPoint(self.topLeft)
+            if self.anchorMode == .above {
+                panel.setFrameOrigin(self.bottomLeft)
+            } else {
+                panel.setFrameTopLeftPoint(self.topLeft)
+            }
             panel.invalidateShadow()
         }
 
@@ -250,8 +286,17 @@ final class WordBubbleController {
         }) {
             monitors.append(monitor)
         }
+        // Clic dans une autre fenêtre de l'app (ex. le panneau résultat) → fermer.
+        if let monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] event in
+            if let bubble = self?.panel, event.window !== bubble {
+                self?.close()
+            }
+            return event
+        }) {
+            monitors.append(monitor)
+        }
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            if event.keyCode == 53 {
+            if event.keyCode == 53, self?.panel != nil {
                 self?.close()
                 return nil
             }
