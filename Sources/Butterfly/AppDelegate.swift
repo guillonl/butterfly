@@ -46,6 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--test-replace") {
             runReplaceTests()
         }
+        if CommandLine.arguments.contains("--test-resize") {
+            runResizeTests()
+        }
         if CommandLine.arguments.contains("--demo") {
             runDemo()
         }
@@ -360,12 +363,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return text.split(separator: " ").count <= 3
     }
 
-    private static func detectLanguage(of text: String) -> String {
-        let recognizer = NLLanguageRecognizer()
-        recognizer.processString(text)
-        return recognizer.dominantLanguage?.rawValue ?? "fr"
-    }
-
     /// Mot cliqué DANS le panneau résultat → bulle d'alternatives au-dessus
     /// du mot, sans fermer le panneau ; choisir une alternative remplace le
     /// mot directement dans le texte affiché.
@@ -374,6 +371,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             FileHandle.standardError.write(Data("[bubble] tap word=\(word) at=\(mouseGlobal)\n".utf8))
         }
         guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseGlobal, $0.frame, false) }) ?? NSScreen.main else { return }
+        // La langue du mot est celle de SA section, pas une détection sur le
+        // fragment isolé : « ajuste » seul passe pour de l'espagnol alors qu'il
+        // vient d'une correction française. La correction est dans la langue
+        // source du texte, la traduction dans la langue cible.
+        let language: String
+        if let model = resultPanel.model {
+            language = section == .correction ? model.sourceLanguage : model.targetLanguage
+        } else {
+            language = "fr"
+        }
         let anchor = CGRect(
             x: mouseGlobal.x - screen.frame.minX - 40,
             y: screen.frame.maxY - mouseGlobal.y - 12,
@@ -382,7 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let bubble = wordBubble.show(
             word: word,
-            sourceLanguage: Self.detectLanguage(of: word),
+            sourceLanguage: language,
             near: anchor,
             on: screen,
             anchorMode: .above,
@@ -532,6 +539,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         print(failures == 0 ? "[test-replace] OK" : "[test-replace] \(failures) ÉCHEC(S)")
+        exit(failures == 0 ? 0 : 1)
+    }
+
+    /// `--test-resize` : vérifie le SENS du redimensionnement par les bords
+    /// (coordonnées AppKit, y vers le haut). « Diminuer » doit diminuer.
+    private func runResizeTests() {
+        let start = NSRect(x: 100, y: 100, width: 440, height: 390)
+        let minSize = NSSize(width: 380, height: 280)
+        typealias E = PanelResizeView.Edges
+        struct Case {
+            let name: String
+            let edges: E
+            let dx: CGFloat
+            let dy: CGFloat
+            let expected: NSRect
+        }
+        let cases: [Case] = [
+            // Bord droit : tirer vers la droite agrandit, vers la gauche diminue.
+            Case(name: "droit +", edges: .right, dx: 50, dy: 0,
+                 expected: NSRect(x: 100, y: 100, width: 490, height: 390)),
+            Case(name: "droit - (diminuer)", edges: .right, dx: -50, dy: 0,
+                 expected: NSRect(x: 100, y: 100, width: 390, height: 390)),
+            // Bord gauche : tirer vers la gauche agrandit, l'origine recule.
+            Case(name: "gauche -", edges: .left, dx: -50, dy: 0,
+                 expected: NSRect(x: 50, y: 100, width: 490, height: 390)),
+            // Bord bas (souris vers le bas = dy négatif) : agrandit, origine descend, haut fixe.
+            Case(name: "bas (vers le bas)", edges: .bottom, dx: 0, dy: -50,
+                 expected: NSRect(x: 100, y: 50, width: 440, height: 440)),
+            // Bord haut (souris vers le haut = dy positif) : agrandit, origine fixe.
+            Case(name: "haut (vers le haut)", edges: .top, dx: 0, dy: 50,
+                 expected: NSRect(x: 100, y: 100, width: 440, height: 440)),
+            // minSize respectée même en tirant fort vers l'intérieur.
+            Case(name: "clamp minSize", edges: .right, dx: -1000, dy: 0,
+                 expected: NSRect(x: 100, y: 100, width: 380, height: 390)),
+            // Coin bas-droit : largeur et hauteur ensemble.
+            Case(name: "coin bas-droit", edges: [.right, .bottom], dx: 30, dy: -40,
+                 expected: NSRect(x: 100, y: 60, width: 470, height: 430)),
+        ]
+        var failures = 0
+        for testCase in cases {
+            let result = PanelResizeView.resizedFrame(
+                startFrame: start, edges: testCase.edges,
+                dx: testCase.dx, dy: testCase.dy, minSize: minSize
+            )
+            if result == testCase.expected {
+                print("[test-resize] \(testCase.name) OK")
+            } else {
+                print("[test-resize] \(testCase.name) FAIL: attendu \(testCase.expected), obtenu \(result)")
+                failures += 1
+            }
+        }
+
+        // Détection des bords/coins à partir d'un point (zone de coin = resize
+        // diagonal). size 440×390, band 6, cornerReach 18.
+        let size = NSSize(width: 440, height: 390)
+        let band: CGFloat = 6, reach: CGFloat = 18
+        struct HitCase { let name: String; let point: NSPoint; let expected: E }
+        let hits: [HitCase] = [
+            HitCase(name: "centre → rien", point: NSPoint(x: 220, y: 195), expected: []),
+            HitCase(name: "bord droit milieu → droit", point: NSPoint(x: 438, y: 195), expected: .right),
+            HitCase(name: "bord bas milieu → bas", point: NSPoint(x: 220, y: 3), expected: .bottom),
+            HitCase(name: "coin bas-droit (fin) → droit+bas", point: NSPoint(x: 438, y: 3), expected: [.right, .bottom]),
+            HitCase(name: "coin bas-droit (épais) → droit+bas", point: NSPoint(x: 426, y: 12), expected: [.right, .bottom]),
+            HitCase(name: "coin haut-gauche → gauche+haut", point: NSPoint(x: 5, y: 385), expected: [.left, .top]),
+            HitCase(name: "ex-trou (10px du droit, 12 du bas)", point: NSPoint(x: 430, y: 12), expected: [.right, .bottom]),
+        ]
+        for hit in hits {
+            let result = PanelResizeView.edges(at: hit.point, size: size, band: band, cornerReach: reach)
+            if result == hit.expected {
+                print("[test-resize] \(hit.name) OK")
+            } else {
+                print("[test-resize] \(hit.name) FAIL: attendu \(hit.expected.rawValue), obtenu \(result.rawValue)")
+                failures += 1
+            }
+        }
+        print(failures == 0 ? "[test-resize] OK" : "[test-resize] \(failures) ÉCHEC(S)")
         exit(failures == 0 ? 0 : 1)
     }
 

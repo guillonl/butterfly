@@ -255,14 +255,68 @@ final class PanelResizeView: NSView {
     var onResizeEnd: (() -> Void)?
 
     private let band: CGFloat = 6
-    private let cornerReach: CGFloat = 14
+    private let cornerReach: CGFloat = 18
 
-    private struct Edges: OptionSet {
+    struct Edges: OptionSet {
         let rawValue: Int
         static let left = Edges(rawValue: 1 << 0)
         static let right = Edges(rawValue: 1 << 1)
         static let top = Edges(rawValue: 1 << 2)
         static let bottom = Edges(rawValue: 1 << 3)
+    }
+
+    /// Quels bords un point active, selon la taille de la vue (coordonnées
+    /// non-flipped : y=0 en bas). Un point dans le carré de coin (cornerReach)
+    /// active les DEUX bords adjacents → resize diagonal ; ailleurs, la bande
+    /// fine (band) active un seul bord. Fonction pure, testable (`--test-resize`).
+    static func edges(at point: NSPoint, size: NSSize, band: CGFloat, cornerReach: CGFloat) -> Edges {
+        let nearLeft = point.x <= cornerReach
+        let nearRight = point.x >= size.width - cornerReach
+        let nearBottom = point.y <= cornerReach
+        let nearTop = point.y >= size.height - cornerReach
+
+        // Carré de coin : les deux bords adjacents ensemble (resize en diagonale).
+        if (nearLeft || nearRight) && (nearTop || nearBottom) {
+            var edges: Edges = []
+            if nearLeft { edges.insert(.left) }
+            if nearRight { edges.insert(.right) }
+            if nearTop { edges.insert(.top) }
+            if nearBottom { edges.insert(.bottom) }
+            return edges
+        }
+
+        // Bande de bord simple.
+        var edges: Edges = []
+        if point.x <= band { edges.insert(.left) }
+        if point.x >= size.width - band { edges.insert(.right) }
+        if point.y <= band { edges.insert(.bottom) }
+        if point.y >= size.height - band { edges.insert(.top) }
+        return edges
+    }
+
+    /// Calcule la frame résultante d'un drag de bord (coordonnées AppKit,
+    /// origine bas-gauche, y vers le haut). Fonction pure pour être testable
+    /// sans souris (`--test-resize`). Le côté OPPOSÉ au bord tiré reste ancré :
+    /// tirer le bord droit ne bouge que la largeur, le bord gauche reste fixe.
+    static func resizedFrame(startFrame: NSRect, edges: Edges, dx: CGFloat, dy: CGFloat, minSize: NSSize) -> NSRect {
+        var frame = startFrame
+        if edges.contains(.right) {
+            frame.size.width = max(minSize.width, startFrame.width + dx)
+        }
+        if edges.contains(.left) {
+            let width = max(minSize.width, startFrame.width - dx)
+            frame.origin.x = startFrame.maxX - width
+            frame.size.width = width
+        }
+        if edges.contains(.top) {
+            frame.size.height = max(minSize.height, startFrame.height + dy)
+        }
+        if edges.contains(.bottom) {
+            let height = max(minSize.height, startFrame.height - dy)
+            frame.origin.y = startFrame.maxY - height
+            frame.size.height = height
+        }
+        return frame
     }
 
     /// Seule la bande de bord est interactive : tout le reste passe au contenu.
@@ -273,36 +327,23 @@ final class PanelResizeView: NSView {
     }
 
     private func edges(at point: NSPoint) -> Edges {
-        var edges: Edges = []
-        if point.x <= band { edges.insert(.left) }
-        if point.x >= bounds.width - band { edges.insert(.right) }
-        if point.y <= band { edges.insert(.bottom) }
-        if point.y >= bounds.height - band { edges.insert(.top) }
-        // Coins plus faciles à attraper que l'intersection stricte des bandes.
-        if !edges.isEmpty {
-            if !edges.isDisjoint(with: [.left, .right]) {
-                if point.y <= cornerReach { edges.insert(.bottom) }
-                if point.y >= bounds.height - cornerReach { edges.insert(.top) }
-            }
-            if !edges.isDisjoint(with: [.top, .bottom]) {
-                if point.x <= cornerReach { edges.insert(.left) }
-                if point.x >= bounds.width - cornerReach { edges.insert(.right) }
-            }
-        }
-        return edges
+        Self.edges(at: point, size: bounds.size, band: band, cornerReach: cornerReach)
     }
 
     override func resetCursorRects() {
         let w = bounds.width, h = bounds.height
+        let c = cornerReach
         let positions: [(NSRect, NSCursor.FrameResizePosition)] = [
-            (NSRect(x: 0, y: band, width: band, height: h - 2 * band), .left),
-            (NSRect(x: w - band, y: band, width: band, height: h - 2 * band), .right),
-            (NSRect(x: band, y: h - band, width: w - 2 * band, height: band), .top),
-            (NSRect(x: band, y: 0, width: w - 2 * band, height: band), .bottom),
-            (NSRect(x: 0, y: 0, width: band, height: band), .bottomLeft),
-            (NSRect(x: w - band, y: 0, width: band, height: band), .bottomRight),
-            (NSRect(x: 0, y: h - band, width: band, height: band), .topLeft),
-            (NSRect(x: w - band, y: h - band, width: band, height: band), .topRight),
+            // Coins : carré cornerReach (zone diagonale généreuse).
+            (NSRect(x: 0, y: 0, width: c, height: c), .bottomLeft),
+            (NSRect(x: w - c, y: 0, width: c, height: c), .bottomRight),
+            (NSRect(x: 0, y: h - c, width: c, height: c), .topLeft),
+            (NSRect(x: w - c, y: h - c, width: c, height: c), .topRight),
+            // Bords entre les coins : bande fine.
+            (NSRect(x: 0, y: c, width: band, height: h - 2 * c), .left),
+            (NSRect(x: w - band, y: c, width: band, height: h - 2 * c), .right),
+            (NSRect(x: c, y: h - band, width: w - 2 * c, height: band), .top),
+            (NSRect(x: c, y: 0, width: w - 2 * c, height: band), .bottom),
         ]
         for (rect, position) in positions {
             addCursorRect(rect, cursor: .frameResize(position: position, directions: .all))
@@ -328,23 +369,7 @@ final class PanelResizeView: NSView {
             let mouse = NSEvent.mouseLocation
             let dx = mouse.x - startMouse.x
             let dy = mouse.y - startMouse.y
-            var frame = startFrame
-            if edges.contains(.right) {
-                frame.size.width = max(minSize.width, startFrame.width + dx)
-            }
-            if edges.contains(.left) {
-                let width = max(minSize.width, startFrame.width - dx)
-                frame.origin.x = startFrame.maxX - width
-                frame.size.width = width
-            }
-            if edges.contains(.top) {
-                frame.size.height = max(minSize.height, startFrame.height + dy)
-            }
-            if edges.contains(.bottom) {
-                let height = max(minSize.height, startFrame.height - dy)
-                frame.origin.y = startFrame.maxY - height
-                frame.size.height = height
-            }
+            let frame = Self.resizedFrame(startFrame: startFrame, edges: edges, dx: dx, dy: dy, minSize: minSize)
             window.setFrame(frame, display: true)
         }
     }
@@ -406,11 +431,13 @@ final class ResultPanelController {
         }
         topLeft = NSPoint(x: x, y: top)
 
-        // .resizable sur une fenêtre borderless : redimensionnement par les
-        // bords uniquement (curseur de resize au survol), aucune poignée.
+        // PAS de .resizable : sur une borderless, le resize de bord natif
+        // intercepte le drag AVANT le contentView (donc avant PanelResizeView)
+        // et entre en conflit avec le ré-ancrage. On gère tout le resize nous-
+        // mêmes via PanelResizeView (setFrame direct, aucun resize système).
         let panel = ResultPanel(
             contentRect: NSRect(x: x, y: top - initialSize.height, width: initialSize.width, height: initialSize.height),
-            styleMask: [.borderless, .nonactivatingPanel, .resizable],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
