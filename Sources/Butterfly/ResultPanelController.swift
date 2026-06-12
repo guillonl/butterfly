@@ -82,6 +82,12 @@ final class ResultModel: ObservableObject {
         case failure(String)
     }
 
+    /// Section de texte cliquable du panneau (provenance d'un mot surligné).
+    enum Section {
+        case correction
+        case translation
+    }
+
     @Published var original: String?
     @Published var correction: SectionState = .loading
     @Published var translation: SectionState = .loading
@@ -176,6 +182,61 @@ final class ResultModel: ObservableObject {
             }
         }
     }
+
+    /// Remplace le N-ième mot du texte affiché par l'alternative choisie dans
+    /// la bulle, en conservant la ponctuation accolée et la majuscule initiale.
+    /// Un remplacement dans la correction retraduit (même chaîne que regenerate).
+    func replaceWord(in section: Section, tokenIndex: Int, original: String, replacement: String) {
+        let state = section == .correction ? correction : translation
+        guard case .value(let text) = state else { return }
+
+        // Mêmes séparateurs que TappableText : l'index de token doit retrouver
+        // exactement le mot cliqué.
+        var ranges: [Range<String.Index>] = []
+        var tokenStart: String.Index?
+        for index in text.indices {
+            if text[index] == " " || text[index] == "\n" {
+                if let start = tokenStart {
+                    ranges.append(start..<index)
+                    tokenStart = nil
+                }
+            } else if tokenStart == nil {
+                tokenStart = index
+            }
+        }
+        if let start = tokenStart { ranges.append(start..<text.endIndex) }
+
+        guard tokenIndex < ranges.count else { return }
+        let token = String(text[ranges[tokenIndex]])
+        // Le texte a pu changer entre le clic et le choix (stream, retraduction).
+        guard token.trimmingCharacters(in: .punctuationCharacters) == original else { return }
+
+        let punctuation = CharacterSet.punctuationCharacters
+        let lead = String(token.prefix { $0.unicodeScalars.allSatisfy(punctuation.contains) })
+        let trail = String(token.reversed().prefix { $0.unicodeScalars.allSatisfy(punctuation.contains) }.reversed())
+
+        var adjusted = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let first = original.first, first.isUppercase,
+           let replacementFirst = adjusted.first, replacementFirst.isLowercase {
+            adjusted = adjusted.prefix(1).uppercased() + adjusted.dropFirst()
+        }
+        let newText = text.replacingCharacters(in: ranges[tokenIndex], with: lead + adjusted + trail)
+
+        switch section {
+        case .correction:
+            correction = .value(newText)
+            if let id = historyID {
+                HistoryStore.shared.updateCorrection(id: id, corrected: newText)
+            }
+            translationSource = newText
+            retranslate()
+        case .translation:
+            translation = .value(newText)
+            if let id = historyID {
+                HistoryStore.shared.updateTranslation(id: id, translated: newText, language: targetLanguage)
+            }
+        }
+    }
 }
 
 /// Panneau borderless qui peut devenir key (boutons + Échap).
@@ -183,10 +244,117 @@ final class ResultPanel: NSPanel {
     override var canBecomeKey: Bool { true }
 }
 
+/// Redimensionnement par les bords pour le panneau borderless.
+/// AppKit ne fournit le resize de bord qu'aux fenêtres titrées ; sur une
+/// borderless il passe par le drag de fond, désactivé ici par
+/// `isMovableByWindowBackground = false` (le drag doit sélectionner le texte).
+/// Cette vue invisible ne capte que le pourtour : curseurs de bord natifs,
+/// drag = resize manuel avec ancrage du côté opposé et minSize respectée.
+final class PanelResizeView: NSView {
+    var onResizeStart: (() -> Void)?
+    var onResizeEnd: (() -> Void)?
+
+    private let band: CGFloat = 6
+    private let cornerReach: CGFloat = 14
+
+    private struct Edges: OptionSet {
+        let rawValue: Int
+        static let left = Edges(rawValue: 1 << 0)
+        static let right = Edges(rawValue: 1 << 1)
+        static let top = Edges(rawValue: 1 << 2)
+        static let bottom = Edges(rawValue: 1 << 3)
+    }
+
+    /// Seule la bande de bord est interactive : tout le reste passe au contenu.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        guard bounds.contains(local) else { return nil }
+        return edges(at: local).isEmpty ? nil : self
+    }
+
+    private func edges(at point: NSPoint) -> Edges {
+        var edges: Edges = []
+        if point.x <= band { edges.insert(.left) }
+        if point.x >= bounds.width - band { edges.insert(.right) }
+        if point.y <= band { edges.insert(.bottom) }
+        if point.y >= bounds.height - band { edges.insert(.top) }
+        // Coins plus faciles à attraper que l'intersection stricte des bandes.
+        if !edges.isEmpty {
+            if !edges.isDisjoint(with: [.left, .right]) {
+                if point.y <= cornerReach { edges.insert(.bottom) }
+                if point.y >= bounds.height - cornerReach { edges.insert(.top) }
+            }
+            if !edges.isDisjoint(with: [.top, .bottom]) {
+                if point.x <= cornerReach { edges.insert(.left) }
+                if point.x >= bounds.width - cornerReach { edges.insert(.right) }
+            }
+        }
+        return edges
+    }
+
+    override func resetCursorRects() {
+        let w = bounds.width, h = bounds.height
+        let positions: [(NSRect, NSCursor.FrameResizePosition)] = [
+            (NSRect(x: 0, y: band, width: band, height: h - 2 * band), .left),
+            (NSRect(x: w - band, y: band, width: band, height: h - 2 * band), .right),
+            (NSRect(x: band, y: h - band, width: w - 2 * band, height: band), .top),
+            (NSRect(x: band, y: 0, width: w - 2 * band, height: band), .bottom),
+            (NSRect(x: 0, y: 0, width: band, height: band), .bottomLeft),
+            (NSRect(x: w - band, y: 0, width: band, height: band), .bottomRight),
+            (NSRect(x: 0, y: h - band, width: band, height: band), .topLeft),
+            (NSRect(x: w - band, y: h - band, width: band, height: band), .topRight),
+        ]
+        for (rect, position) in positions {
+            addCursorRect(rect, cursor: .frameResize(position: position, directions: .all))
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        let start = convert(event.locationInWindow, from: nil)
+        let edges = edges(at: start)
+        guard !edges.isEmpty else { return }
+
+        let startFrame = window.frame
+        let startMouse = NSEvent.mouseLocation
+        let minSize = window.minSize
+        onResizeStart?()
+        defer { onResizeEnd?() }
+
+        // Boucle de tracking classique : le drag pilote la frame en direct.
+        while true {
+            guard let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) else { break }
+            if next.type == .leftMouseUp { break }
+            let mouse = NSEvent.mouseLocation
+            let dx = mouse.x - startMouse.x
+            let dy = mouse.y - startMouse.y
+            var frame = startFrame
+            if edges.contains(.right) {
+                frame.size.width = max(minSize.width, startFrame.width + dx)
+            }
+            if edges.contains(.left) {
+                let width = max(minSize.width, startFrame.width - dx)
+                frame.origin.x = startFrame.maxX - width
+                frame.size.width = width
+            }
+            if edges.contains(.top) {
+                frame.size.height = max(minSize.height, startFrame.height + dy)
+            }
+            if edges.contains(.bottom) {
+                let height = max(minSize.height, startFrame.height - dy)
+                frame.origin.y = startFrame.maxY - height
+                frame.size.height = height
+            }
+            window.setFrame(frame, display: true)
+        }
+    }
+}
+
 @MainActor
 final class ResultPanelController {
-    /// Mot surligné dans le panneau (mot, position souris globale bas-gauche).
-    var onWordSelected: ((String, NSPoint) -> Void)?
+    /// Mot cliqué dans le panneau : section d'origine, index du token, mot
+    /// nettoyé, position souris globale (bas-gauche) pour ancrer la bulle.
+    var onWordSelected: ((ResultModel.Section, Int, String, NSPoint) -> Void)?
     /// Échap est ignoré quand ceci renvoie true (ex. bulle ouverte par-dessus).
     var shouldIgnoreEscape: (() -> Bool)?
 
@@ -195,10 +363,9 @@ final class ResultPanelController {
     private var keyMonitor: Any?
     private var resizeObserver: NSObjectProtocol?
     private var moveObserver: NSObjectProtocol?
-    private var liveResizeStartObserver: NSObjectProtocol?
-    private var liveResizeEndObserver: NSObjectProtocol?
     private var topLeft: NSPoint = .zero
     private var programmaticMove = false
+    private var userResizing = false
     private(set) var model: ResultModel?
 
     private let panelWidth: CGFloat = 440
@@ -264,15 +431,7 @@ final class ResultPanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let host = NSHostingController(
-            rootView: ResultView(
-                model: model,
-                onClose: { [weak self] in self?.close() },
-                maxHeight: visible.height - 32,
-                fluid: savedSize != nil,
-                onWordTap: { [weak self] word in
-                    self?.onWordSelected?(word, NSEvent.mouseLocation)
-                }
-            )
+            rootView: makeResultView(model: model, maxHeight: visible.height - 32, fluid: savedSize != nil)
         )
         // En mode fluide (taille mémorisée), la fenêtre garde sa taille et la
         // vue la remplit ; sinon la vue pilote la taille de la fenêtre.
@@ -281,6 +440,16 @@ final class ResultPanelController {
         panel.contentViewController = host
         if savedSize != nil {
             panel.setContentSize(initialSize)
+        }
+
+        // Bande de redimensionnement par-dessus le contenu (bords uniquement,
+        // le hitTest laisse passer tout le reste vers les vues SwiftUI).
+        if let content = panel.contentView {
+            let resizer = PanelResizeView(frame: content.bounds)
+            resizer.autoresizingMask = [.width, .height]
+            resizer.onResizeStart = { [weak self] in self?.beginUserResize() }
+            resizer.onResizeEnd = { [weak self] in self?.endUserResize() }
+            content.addSubview(resizer)
         }
 
         self.panel = panel
@@ -299,7 +468,7 @@ final class ResultPanelController {
         ) { [weak self] _ in
             guard let self, let panel = self.panel else { return }
             // Pendant un redimensionnement manuel, ne pas lutter avec l'utilisateur.
-            guard !panel.inLiveResize else { return }
+            guard !self.userResizing else { return }
             self.programmaticMove = true
             panel.setFrameTopLeftPoint(self.topLeft)
             self.clampIntoScreen(panel)
@@ -307,32 +476,6 @@ final class ResultPanelController {
             // L'ombre native est un snapshot : la rafraîchir à chaque
             // changement de taille (stream, animations) évite les contours
             // fantômes de l'ancienne forme.
-            panel.invalidateShadow()
-        }
-        // Redimensionnement manuel : passer la vue en mode fluide dès le début
-        // du geste (sinon le hosting réimpose la taille du contenu), puis
-        // mémoriser la taille choisie pour les prochains panneaux.
-        liveResizeStartObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willStartLiveResizeNotification, object: panel, queue: .main
-        ) { [weak self] _ in
-            guard let self else { return }
-            self.hostRef?.sizingOptions = []
-            self.hostRef?.rootView = ResultView(
-                model: model,
-                onClose: { [weak self] in self?.close() },
-                maxHeight: .infinity,
-                fluid: true,
-                onWordTap: { [weak self] word in
-                    self?.onWordSelected?(word, NSEvent.mouseLocation)
-                }
-            )
-        }
-        liveResizeEndObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didEndLiveResizeNotification, object: panel, queue: .main
-        ) { [weak self] _ in
-            guard let self, let panel = self.panel else { return }
-            PanelSizeStore.save(panel.frame.size)
-            self.topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
             panel.invalidateShadow()
         }
         // Si Léo déplace le panneau à la main, on ré-ancre sur sa position.
@@ -352,10 +495,40 @@ final class ResultPanelController {
             return event
         }
 
-        // Surlignage d'un mot dans le panneau : à la fin du geste, lire la
-        // sélection via l'accessibilité de notre propre process et remonter
-        // le mot (la bulle s'ouvre au-dessus, sans fermer le panneau).
         return model
+    }
+
+    /// Vue résultat câblée : fermeture, clic sur un mot (section + index pour
+    /// le remplacement par la bulle).
+    private func makeResultView(model: ResultModel, maxHeight: CGFloat, fluid: Bool) -> ResultView {
+        ResultView(
+            model: model,
+            onClose: { [weak self] in self?.close() },
+            maxHeight: maxHeight,
+            fluid: fluid,
+            onWordTap: { [weak self] section, tokenIndex, word in
+                self?.onWordSelected?(section, tokenIndex, word, NSEvent.mouseLocation)
+            }
+        )
+    }
+
+    /// Début du redimensionnement manuel : passer la vue en mode fluide
+    /// (sinon le hosting réimpose la taille du contenu pendant le drag).
+    private func beginUserResize() {
+        guard let model else { return }
+        userResizing = true
+        hostRef?.sizingOptions = []
+        hostRef?.rootView = makeResultView(model: model, maxHeight: .infinity, fluid: true)
+    }
+
+    /// Fin du redimensionnement : mémoriser la taille choisie pour les
+    /// prochains panneaux et ré-ancrer le coin haut-gauche.
+    private func endUserResize() {
+        userResizing = false
+        guard let panel else { return }
+        PanelSizeStore.save(panel.frame.size)
+        topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
+        panel.invalidateShadow()
     }
 
     /// Garde le panneau entièrement visible : s'il grandit au point de sortir
@@ -384,14 +557,6 @@ final class ResultPanelController {
         if let moveObserver {
             NotificationCenter.default.removeObserver(moveObserver)
             self.moveObserver = nil
-        }
-        if let liveResizeStartObserver {
-            NotificationCenter.default.removeObserver(liveResizeStartObserver)
-            self.liveResizeStartObserver = nil
-        }
-        if let liveResizeEndObserver {
-            NotificationCenter.default.removeObserver(liveResizeEndObserver)
-            self.liveResizeEndObserver = nil
         }
         panel?.orderOut(nil)
         panel = nil

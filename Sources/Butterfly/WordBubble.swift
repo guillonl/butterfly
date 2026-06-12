@@ -51,11 +51,13 @@ final class WordBubbleModel: ObservableObject {
     }
 }
 
-/// Petite bulle compacte : le mot, des alternatives cliquables (copie),
-/// un bouton pour régénérer d'autres propositions.
+/// Petite bulle compacte : le mot, des alternatives cliquables, un bouton
+/// pour régénérer d'autres propositions. Un clic remplace le mot dans le
+/// panneau (onPick) ; sans contexte de remplacement, il copie l'alternative.
 struct WordBubbleView: View {
     @ObservedObject var model: WordBubbleModel
     var onClose: () -> Void
+    var onPick: ((String) -> Void)?
 
     @State private var appeared = false
     @State private var copiedIndex: Int?
@@ -136,13 +138,18 @@ struct WordBubbleView: View {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(alternatives.enumerated()), id: \.offset) { index, alternative in
                     Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(alternative, forType: .string)
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                            copiedIndex = index
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                            withAnimation(.easeOut(duration: 0.2)) { copiedIndex = nil }
+                        if let onPick {
+                            onPick(alternative)
+                            onClose()
+                        } else {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(alternative, forType: .string)
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                                copiedIndex = index
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                withAnimation(.easeOut(duration: 0.2)) { copiedIndex = nil }
+                            }
                         }
                     } label: {
                         HStack(spacing: 8) {
@@ -150,7 +157,7 @@ struct WordBubbleView: View {
                                 .font(.system(size: 13))
                                 .lineLimit(2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                            Image(systemName: copiedIndex == index ? "checkmark" : "doc.on.doc")
+                            Image(systemName: pickIcon(at: index))
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(copiedIndex == index ? AnyShapeStyle(.green) : AnyShapeStyle(.tertiary))
                         }
@@ -161,7 +168,7 @@ struct WordBubbleView: View {
                     .buttonStyle(.plain)
                     .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
                 }
-                Text(L10n.t("bubble.hint"))
+                Text(L10n.t(onPick != nil ? "bubble.hint.replace" : "bubble.hint"))
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                     .padding(.top, 6)
@@ -169,6 +176,11 @@ struct WordBubbleView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 12)
         }
+    }
+
+    private func pickIcon(at index: Int) -> String {
+        if onPick != nil { return "arrow.2.squarepath" }
+        return copiedIndex == index ? "checkmark" : "doc.on.doc"
     }
 }
 
@@ -198,7 +210,8 @@ final class WordBubbleController {
         near anchorTopLeft: CGRect,
         on screen: NSScreen,
         anchorMode: AnchorMode = .below,
-        takeFocus: Bool = true
+        takeFocus: Bool = true,
+        onPick: ((String) -> Void)? = nil
     ) -> WordBubbleModel {
         close()
         self.anchorMode = anchorMode
@@ -246,7 +259,7 @@ final class WordBubbleController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let host = NSHostingController(
-            rootView: WordBubbleView(model: model, onClose: { [weak self] in self?.close() })
+            rootView: WordBubbleView(model: model, onClose: { [weak self] in self?.close() }, onPick: onPick)
         )
         host.sizingOptions = [.preferredContentSize]
         hostRef = host

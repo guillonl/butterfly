@@ -11,8 +11,9 @@ struct ResultView: View {
     /// Mode fluide (taille de fenêtre mémorisée) : la vue remplit la fenêtre
     /// au lieu de la piloter.
     var fluid = false
-    /// Clic sur un mot de la correction ou de la traduction (bulle d'alternatives).
-    var onWordTap: ((String) -> Void)?
+    /// Clic sur un mot de la correction ou de la traduction : section, index
+    /// du token (pour le remplacement) et mot nettoyé (bulle d'alternatives).
+    var onWordTap: ((ResultModel.Section, Int, String) -> Void)?
     @State private var appeared = false
     @State private var originalExpanded = false
     @State private var contentHeight: CGFloat = 0
@@ -225,7 +226,7 @@ struct ResultView: View {
                 }
                 Spacer()
             }
-            stateView(model.correction, emphasized: true)
+            stateView(model.correction, section: .correction, emphasized: true)
         }
     }
 
@@ -246,7 +247,7 @@ struct ResultView: View {
                 languageMenu
                 Spacer()
             }
-            stateView(model.translation, emphasized: false)
+            stateView(model.translation, section: .translation, emphasized: false)
         }
     }
 
@@ -275,7 +276,7 @@ struct ResultView: View {
     }
 
     @ViewBuilder
-    private func stateView(_ state: ResultModel.SectionState, emphasized: Bool) -> some View {
+    private func stateView(_ state: ResultModel.SectionState, section: ResultModel.Section, emphasized: Bool) -> some View {
         switch state {
         case .loading:
             ShimmerLines()
@@ -284,7 +285,7 @@ struct ResultView: View {
                 TappableText(
                     text: text,
                     font: .system(size: emphasized ? 14 : 13, weight: emphasized ? .medium : .regular),
-                    onWordTap: onWordTap
+                    onWordTap: { tokenIndex, word in onWordTap?(section, tokenIndex, word) }
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 CopyButton(text: text)
@@ -312,11 +313,12 @@ struct ResultView: View {
 // MARK: - Composants
 
 /// Texte dont chaque mot est cliquable : soulignement au survol, un clic
-/// remonte le mot (nettoyé de sa ponctuation) pour la bulle d'alternatives.
+/// remonte l'index du token et le mot (nettoyé de sa ponctuation) pour la
+/// bulle d'alternatives et le remplacement en place.
 struct TappableText: View {
     let text: String
     let font: Font
-    var onWordTap: ((String) -> Void)?
+    var onWordTap: ((Int, String) -> Void)?
 
     @State private var hoveredIndex: Int?
 
@@ -340,7 +342,7 @@ struct TappableText: View {
                     .onTapGesture {
                         let word = token.trimmingCharacters(in: .punctuationCharacters)
                         guard !word.isEmpty else { return }
-                        onWordTap?(word)
+                        onWordTap?(index, word)
                     }
             }
         }

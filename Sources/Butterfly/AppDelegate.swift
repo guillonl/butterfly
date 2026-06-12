@@ -30,9 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return true
         }
 
-        // Surligner un mot dans le panneau résultat → bulle au-dessus du mot.
-        resultPanel.onWordSelected = { [weak self] word, mouseGlobal in
-            self?.showWordBubble(word: word, at: mouseGlobal)
+        // Cliquer un mot dans le panneau résultat → bulle au-dessus du mot ;
+        // choisir une alternative remplace le mot dans sa section d'origine.
+        resultPanel.onWordSelected = { [weak self] section, tokenIndex, word, mouseGlobal in
+            self?.showWordBubble(word: word, section: section, tokenIndex: tokenIndex, at: mouseGlobal)
         }
         // Échap ferme la bulle d'abord, le panneau ensuite.
         resultPanel.shouldIgnoreEscape = { [weak self] in
@@ -41,6 +42,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if CommandLine.arguments.contains("--selftest") {
             runSelfTest()
+        }
+        if CommandLine.arguments.contains("--test-replace") {
+            runReplaceTests()
         }
         if CommandLine.arguments.contains("--demo") {
             runDemo()
@@ -362,9 +366,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return recognizer.dominantLanguage?.rawValue ?? "fr"
     }
 
-    /// Mot surligné DANS le panneau résultat → bulle d'alternatives au-dessus
-    /// du mot, sans fermer le panneau.
-    private func showWordBubble(word: String, at mouseGlobal: NSPoint) {
+    /// Mot cliqué DANS le panneau résultat → bulle d'alternatives au-dessus
+    /// du mot, sans fermer le panneau ; choisir une alternative remplace le
+    /// mot directement dans le texte affiché.
+    private func showWordBubble(word: String, section: ResultModel.Section, tokenIndex: Int, at mouseGlobal: NSPoint) {
         if ProcessInfo.processInfo.environment["BUTTERFLY_DEBUG"] != nil {
             FileHandle.standardError.write(Data("[bubble] tap word=\(word) at=\(mouseGlobal)\n".utf8))
         }
@@ -381,7 +386,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             near: anchor,
             on: screen,
             anchorMode: .above,
-            takeFocus: false
+            takeFocus: false,
+            onPick: { [weak self] replacement in
+                self?.resultPanel.model?.replaceWord(
+                    in: section,
+                    tokenIndex: tokenIndex,
+                    original: word,
+                    replacement: replacement
+                )
+            }
         )
         Task { @MainActor in
             guard let backend = await TextEngine.shared.resolveBackend() else {
@@ -456,6 +469,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 exit(1)
             }
         }
+    }
+
+    /// `--test-replace` : vérifie la logique de remplacement de mot
+    /// (tokenisation, ponctuation accolée, casse) sans interface ni moteur.
+    private func runReplaceTests() {
+        struct Case {
+            let text: String
+            let section: ResultModel.Section
+            let tokenIndex: Int
+            let original: String
+            let replacement: String
+            let expected: String
+        }
+        let cases: [Case] = [
+            // Remplacement simple au milieu d'une phrase
+            Case(text: "Je veux tester l'application.", section: .correction,
+                 tokenIndex: 2, original: "tester", replacement: "essayer",
+                 expected: "Je veux essayer l'application."),
+            // Ponctuation accolée conservée
+            Case(text: "voir le résultat, vite", section: .correction,
+                 tokenIndex: 2, original: "résultat", replacement: "rendu",
+                 expected: "voir le rendu, vite"),
+            // Majuscule initiale conservée
+            Case(text: "Tester le code", section: .correction,
+                 tokenIndex: 0, original: "Tester", replacement: "essayer",
+                 expected: "Essayer le code"),
+            // Retours à la ligne préservés
+            Case(text: "un\ndeux trois", section: .translation,
+                 tokenIndex: 1, original: "deux", replacement: "2",
+                 expected: "un\n2 trois"),
+            // Mot désynchronisé (le texte a changé) : aucun remplacement
+            Case(text: "Je veux tester l'application.", section: .correction,
+                 tokenIndex: 2, original: "corriger", replacement: "essayer",
+                 expected: "Je veux tester l'application."),
+        ]
+        var failures = 0
+        for (index, testCase) in cases.enumerated() {
+            let model = ResultModel()
+            if testCase.section == .correction {
+                model.correction = .value(testCase.text)
+            } else {
+                model.translation = .value(testCase.text)
+            }
+            model.replaceWord(
+                in: testCase.section,
+                tokenIndex: testCase.tokenIndex,
+                original: testCase.original,
+                replacement: testCase.replacement
+            )
+            let state = testCase.section == .correction ? model.correction : model.translation
+            guard case .value(let result) = state else {
+                print("[test-replace] #\(index) état inattendu")
+                failures += 1
+                continue
+            }
+            if result == testCase.expected {
+                print("[test-replace] #\(index) OK: \(result)")
+            } else {
+                print("[test-replace] #\(index) FAIL: attendu « \(testCase.expected) », obtenu « \(result) »")
+                failures += 1
+            }
+        }
+        print(failures == 0 ? "[test-replace] OK" : "[test-replace] \(failures) ÉCHEC(S)")
+        exit(failures == 0 ? 0 : 1)
     }
 
     /// `--demo-history` : remplit l'historique de données fictives et ouvre
