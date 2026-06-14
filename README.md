@@ -16,9 +16,18 @@
 
 ## Comment ça marche
 
-1. Appuie sur **⌥⌘B** (Option + Cmd + B) : l'écran gèle et une loupe en verre suit ton curseur.
-2. **Clique-glisse** sur n'importe quel texte (un mail, un Slack, une image, un PDF, peu importe : c'est de la reconnaissance visuelle). Échap pour annuler.
-3. Un panneau en verre apparaît : texte détecté, **correction** des fautes, et **traduction**. Texte déjà sélectionnable ? **⌃⌘B** corrige directement la sélection, sans loupe.
+Deux façons d'attraper du texte, au choix :
+
+1. **N'importe quoi à l'écran (loupe, ⌥⌘B).** Appuie sur **⌥⌘B** : l'écran gèle et une loupe en verre suit ton curseur. Clique-glisse sur le texte à traiter, où qu'il soit (un mail, un Slack, une image, un PDF, une vidéo en pause) : c'est de la reconnaissance visuelle, ça marche même là où le texte n'est pas sélectionnable. Échap pour annuler.
+2. **Du texte déjà sélectionnable (⌃⌘B).** Sélectionne du texte dans n'importe quelle app, puis **⌃⌘B**. Pas de loupe ni d'OCR : Butterfly lit directement ta sélection.
+
+Dans les deux cas, un panneau en verre apparaît avec le texte détecté, sa **correction** et sa **traduction**.
+
+**Tu choisis ce que Butterfly fait** (clic droit sur l'icône → Réglages → Mode de traitement) :
+
+- **Corriger et traduire** (par défaut)
+- **Corriger seulement**, plus rapide, sans traduction
+- **Traduire seulement**, traduction directe de l'original
 
 Dans le panneau :
 
