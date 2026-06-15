@@ -45,6 +45,13 @@ mkdir -p "$STAGING"
 cp -R "$APP" "$STAGING/Butterfly.app"
 xattr -cr "$STAGING/Butterfly.app"
 
+# 4b. Détache un éventuel volume « Butterfly » resté monté d'une exécution
+#     précédente interrompue : sinon create-dmg ne peut pas recréer un volume
+#     du même nom et échoue avec « hdiutil: create failed - Resource busy ».
+while [ -d "/Volumes/$VOLNAME" ]; do
+  hdiutil detach "/Volumes/$VOLNAME" -force >/dev/null 2>&1 || break
+done
+
 # 5. Construire le DMG. create-dmg retourne 2 (succès avec avertissement)
 #    quand l'app n'est pas signée Developer ID : c'est notre cas tant qu'on
 #    n'est pas notarisé, on ne traite donc en échec qu'un code > 2.
