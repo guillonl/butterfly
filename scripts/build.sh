@@ -5,7 +5,14 @@ cd "$(dirname "$0")/.."
 
 swift build -c release
 
-APP="dist/Butterfly.app"
+# Variante optionnelle (pour installer une « Butterfly Beta » À CÔTÉ de la
+# version stable, sans conflit) : un nom et un bundle id distincts donnent un
+# .app séparé, des préférences séparées et des permissions TCC séparées.
+#   BUTTERFLY_APP_NAME="Butterfly Beta" BUTTERFLY_BUNDLE_ID="com.leoguillon.butterfly.beta" bash scripts/build.sh
+APP_NAME="${BUTTERFLY_APP_NAME:-Butterfly}"
+BUNDLE_ID="${BUTTERFLY_BUNDLE_ID:-com.leoguillon.butterfly}"
+
+APP="dist/${APP_NAME}.app"
 mkdir -p dist
 xattr -w com.dropbox.ignored 1 dist 2>/dev/null || true
 rm -rf "$APP"
@@ -13,6 +20,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp .build/release/Butterfly "$APP/Contents/MacOS/Butterfly"
 cp Info.plist "$APP/Contents/Info.plist"
+# Applique le nom/identifiant de la variante au bundle copié.
+/usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP/Contents/Info.plist"
 if [ -f assets/AppIcon.icns ]; then
   cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 fi

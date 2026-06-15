@@ -96,7 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = ButterflyArt.statusItemImage()
-        statusItem.button?.toolTip = "Butterfly"
+        // Tooltip = nom du bundle : distingue « Butterfly Beta » de la stable
+        // quand les deux tournent côte à côte.
+        statusItem.button?.toolTip = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Butterfly"
         // Clic gauche → panneau historique ; clic droit → menu d'actions.
         statusItem.button?.action = #selector(statusItemClicked)
         statusItem.button?.target = self
