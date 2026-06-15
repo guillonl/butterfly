@@ -677,6 +677,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         eq("alt dédoublonne", TextEngine.parseAlternatives("change, change, modifie", excluding: "x"), ["change", "modifie"])
         eq("alt expressions", TextEngine.parseAlternatives("plus court\ntout à fait", excluding: "x"), ["plus court", "tout à fait"])
 
+        // stripPreamble : préambules conversationnels d'Apple Intelligence.
+        check("préambule EN", TextEngine.stripPreamble("Sure, here's the revised version: hello"), "hello")
+        check("préambule FR", TextEngine.stripPreamble("Voici la traduction : bonjour"), "bonjour")
+        check("préambule absent", TextEngine.stripPreamble("hello world"), "hello world")
+        check("faux préambule (: lointain)", TextEngine.stripPreamble("Here is a very long sentence that legitimately uses a colon much later: indeed"), "Here is a very long sentence that legitimately uses a colon much later: indeed")
+        // firstVariant : liste numérotée → première seulement.
+        check("variante liste", TextEngine.firstVariant("1. abc\n2. def\n3. ghi"), "abc")
+        check("variante unique", TextEngine.firstVariant("1. seule"), "seule")
+        check("variante sans liste", TextEngine.firstVariant("texte normal"), "texte normal")
+        // cleanedResult : le cas réel (préambule + liste de variantes guillemetées).
+        check("résultat unique", TextEngine.cleanedResult("1. \"Then test.\"\n2. \"Then test.\"", singleResult: true), "Then test.")
+        eq("résultat liste préservée", TextEngine.parseAlternatives(TextEngine.cleanedResult("touche\ncommande", singleResult: false), excluding: "x"), ["touche", "commande"])
+
         print(failures == 0 ? "[test-cleaning] OK" : "[test-cleaning] \(failures) ÉCHEC(S)")
         exit(failures == 0 ? 0 : 1)
     }
