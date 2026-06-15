@@ -69,14 +69,52 @@ final class TextEngine {
             if appleAvailable { return .apple }
             return await ensureOllama() ? .ollama : nil
         case .auto:
-            if await ensureOllama() { return .ollama }
-            return appleAvailable ? .apple : nil
+            // Apple Intelligence d'abord : c'est l'IA EMBARQUÉE fournie par
+            // macOS (rien à installer, rien à télécharger). Ollama ne sert plus
+            // que de secours pour les Mac où Apple Intelligence n'est pas
+            // disponible mais où un serveur Ollama tourne déjà.
+            if appleAvailable { return .apple }
+            return await ensureOllama() ? .ollama : nil
         }
     }
 
     private var appleAvailable: Bool {
         if case .available = SystemLanguageModel.default.availability { return true }
         return false
+    }
+
+    /// Disponibilité d'Apple Intelligence avec la raison, pour l'onboarding :
+    /// on peut alors guider précisément (activer, patienter le téléchargement,
+    /// ou basculer sur Ollama si le Mac n'est pas éligible).
+    enum AppleStatus: Equatable {
+        case available
+        case notEnabled      // Apple Intelligence désactivé dans les Réglages
+        case modelNotReady   // modèle on-device en cours de téléchargement
+        case notEligible     // Mac non compatible Apple Intelligence
+        case unknown
+    }
+
+    var appleStatus: AppleStatus {
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            return .available
+        case .unavailable(let reason):
+            switch reason {
+            case .appleIntelligenceNotEnabled: return .notEnabled
+            case .modelNotReady: return .modelNotReady
+            case .deviceNotEligible: return .notEligible
+            @unknown default: return .unknown
+            }
+        @unknown default:
+            return .unknown
+        }
+    }
+
+    /// Un moteur Ollama (binaire + modèle) est-il déjà présent localement ?
+    /// Sert à l'onboarding : sur un Mac non éligible à Apple Intelligence, on
+    /// indique si l'option avancée Ollama est exploitable.
+    func ollamaInstalled() -> Bool {
+        ollamaBinaryCandidates.contains { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     private struct OllamaTags: Decodable {
@@ -129,8 +167,10 @@ final class TextEngine {
     /// Précharge le modèle Ollama (appelé dès l'appui sur le raccourci :
     /// le modèle se charge pendant que l'utilisateur fait sa sélection).
     func warmup() async {
-        guard preference != .apple else { return }
-        guard await ensureOllama() else { return }
+        // Apple Intelligence ne nécessite aucun préchauffage : on n'allume
+        // Ollama que s'il sera réellement le moteur retenu (sinon, sur un Mac
+        // avec Apple Intelligence, on ne démarre pas de serveur inutilement).
+        guard await resolveBackend() == .ollama else { return }
         var request = URLRequest(url: ollamaBase.appendingPathComponent("api/generate"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

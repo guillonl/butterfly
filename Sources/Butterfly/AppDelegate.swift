@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let historyPanel = HistoryPanelController()
     private let settingsPanel = SettingsPanelController()
     private let wordBubble = WordBubbleController()
+    private let onboardingPanel = OnboardingPanelController()
     private var capturing = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -63,6 +64,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--demo-settings") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 self?.settingsPanel.show()
+            }
+        }
+        if CommandLine.arguments.contains("--demo-onboarding") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.onboardingPanel.show()
+            }
+        }
+        // Premier lancement réel (hors modes test/démo CLI) : guide de démarrage.
+        if !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.onboardingPanel.showIfFirstLaunch()
             }
         }
         if CommandLine.arguments.contains("--demo-bubble") {
@@ -131,6 +143,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.engineMenu = engineMenu
         menu.addItem(.separator())
 
+        let onboardingItem = NSMenuItem(title: L10n.t("menu.onboarding"), action: #selector(showOnboarding), keyEquivalent: "")
+        onboardingItem.target = self
+        menu.addItem(onboardingItem)
+
         let settingsItem = NSMenuItem(title: L10n.t("menu.settings"), action: #selector(showSettings), keyEquivalent: "")
         settingsItem.target = self
         menu.addItem(settingsItem)
@@ -196,6 +212,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showSettings() {
         historyPanel.close()
         settingsPanel.show()
+    }
+
+    @objc private func showOnboarding() {
+        historyPanel.close()
+        onboardingPanel.show()
     }
 
     @objc private func selectEngine(_ sender: NSMenuItem) {
