@@ -297,10 +297,21 @@ final class TextEngine {
             """
         let raw = try await complete(system: system, user: word, backend: backend,
                                      temperature: 0.7, onPartial: { _ in })
+        return Self.parseAlternatives(raw, excluding: word)
+    }
+
+    /// Découpe la liste d'alternatives renvoyée par le modèle. Robuste au
+    /// format du moteur : Ollama répond une par ligne, Apple Intelligence les
+    /// sépare souvent par des virgules sur une seule ligne. On découpe donc sur
+    /// les retours à la ligne ET les séparateurs de liste, et on retire puces,
+    /// numéros et guillemets. Fonction pure (testée par --test-cleaning).
+    static func parseAlternatives(_ raw: String, excluding word: String) -> [String] {
+        let separators = CharacterSet(charactersIn: "\n,;•·")
+        let trimSet = CharacterSet(charactersIn: " \t-–—*0123456789.)\"“”«»‘’'")
         var seen = Set<String>()
         let cleaned: [String] = raw
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \t-•*0123456789.)")) }
+            .components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: trimSet) }
             .filter { !$0.isEmpty && $0.lowercased() != word.lowercased() && seen.insert($0.lowercased()).inserted }
         return Array(cleaned.prefix(5))
     }
@@ -456,8 +467,16 @@ final class TextEngine {
         return final
     }
 
-    /// Nettoie la sortie brute du modèle : blocs <think> de qwen3
-    /// (parfois sans balise ouvrante), guillemets d'emballage, espaces.
+    /// Caractères de guillemet/apostrophe ouvrants et fermants susceptibles
+    /// d'emballer la réponse : droits, courbes (typographiques, fréquents avec
+    /// Apple Intelligence) et chevrons français.
+    private static let wrapOpeners: Set<Character> = ["\"", "\u{201C}", "\u{00AB}", "\u{2018}", "'", "\u{201D}"]
+    private static let wrapClosers: Set<Character> = ["\"", "\u{201D}", "\u{00BB}", "\u{2019}", "'", "\u{201C}"]
+
+    /// Nettoie la sortie brute du modèle : blocs <think> de qwen3 (parfois sans
+    /// balise ouvrante), puis les guillemets d'emballage (triples ou simples,
+    /// droits comme typographiques). Apple Intelligence emballe souvent sa
+    /// réponse dans des guillemets courbes que le nettoyage droit laissait passer.
     static func cleaned(_ raw: String) -> String {
         var text = raw
         // Si une balise fermante </think> existe, la vraie réponse est après
@@ -466,11 +485,14 @@ final class TextEngine {
             text = String(text[range.upperBound...])
         }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Délimiteurs triple guillemets parfois recopiés par le modèle
+        // Triples guillemets (les délimiteurs """) parfois recopiés tels quels.
         if text.hasPrefix("\"\"\"") { text = String(text.dropFirst(3)) }
         if text.hasSuffix("\"\"\"") { text = String(text.dropLast(3)) }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.hasPrefix("\""), text.hasSuffix("\""), text.count > 2 {
+        // Une (ou des) paire(s) de guillemets/apostrophes d'emballage, quel que
+        // soit leur style (droit, courbe, chevron français).
+        while let first = text.first, let last = text.last, text.count > 1,
+              wrapOpeners.contains(first), wrapClosers.contains(last) {
             text = String(text.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return text

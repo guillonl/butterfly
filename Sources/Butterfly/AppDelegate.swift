@@ -50,6 +50,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--test-resize") {
             runResizeTests()
         }
+        if CommandLine.arguments.contains("--test-cleaning") {
+            runCleaningTests()
+        }
         if CommandLine.arguments.contains("--demo") {
             runDemo()
         }
@@ -638,6 +641,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         print(failures == 0 ? "[test-resize] OK" : "[test-resize] \(failures) ÉCHEC(S)")
+        exit(failures == 0 ? 0 : 1)
+    }
+
+    /// `--test-cleaning` : nettoyage des sorties moteur (guillemets d'emballage,
+    /// notamment courbes d'Apple Intelligence) et découpe des alternatives
+    /// (une par ligne ou séparées par des virgules). Sans moteur ni UI.
+    private func runCleaningTests() {
+        var failures = 0
+        func check(_ name: String, _ got: String, _ expected: String) {
+            if got == expected { print("[test-cleaning] \(name) OK") }
+            else { print("[test-cleaning] \(name) FAIL: attendu « \(expected) », obtenu « \(got) »"); failures += 1 }
+        }
+        // cleaned() : guillemets d'emballage de tous styles.
+        check("droits", TextEngine.cleaned("\"bonjour\""), "bonjour")
+        check("triples", TextEngine.cleaned("\"\"\"bonjour\"\"\""), "bonjour")
+        check("courbes doubles", TextEngine.cleaned("\u{201C}bonjour\u{201D}"), "bonjour")
+        check("apostrophes courbes", TextEngine.cleaned("\u{2018}bonjour\u{2019}"), "bonjour")
+        check("chevrons français", TextEngine.cleaned("\u{00AB} bonjour \u{00BB}"), "bonjour")
+        check("imbriqués", TextEngine.cleaned("\u{201C}\u{00AB} salut \u{00BB}\u{201D}"), "salut")
+        check("déjà propre", TextEngine.cleaned("rien à enlever"), "rien à enlever")
+        check("think", TextEngine.cleaned("<think>blabla</think>réponse"), "réponse")
+        check("apostrophe interne préservée", TextEngine.cleaned("c'est l'application"), "c'est l'application")
+
+        // parseAlternatives() : formats Ollama (lignes) et Apple (virgules).
+        func eq(_ name: String, _ got: [String], _ expected: [String]) {
+            if got == expected { print("[test-cleaning] \(name) OK") }
+            else { print("[test-cleaning] \(name) FAIL: attendu \(expected), obtenu \(got)"); failures += 1 }
+        }
+        eq("alt lignes", TextEngine.parseAlternatives("essayer\ntester\nvérifier", excluding: "x"), ["essayer", "tester", "vérifier"])
+        eq("alt virgules", TextEngine.parseAlternatives("essayer, tester, vérifier", excluding: "x"), ["essayer", "tester", "vérifier"])
+        eq("alt numérotées", TextEngine.parseAlternatives("1. essayer\n2. tester", excluding: "x"), ["essayer", "tester"])
+        eq("alt guillemets", TextEngine.parseAlternatives("\u{201C}essayer\u{201D}, \u{201C}tester\u{201D}", excluding: "x"), ["essayer", "tester"])
+        eq("alt exclut le mot", TextEngine.parseAlternatives("ajuste, modifie, change", excluding: "ajuste"), ["modifie", "change"])
+        eq("alt dédoublonne", TextEngine.parseAlternatives("change, change, modifie", excluding: "x"), ["change", "modifie"])
+        eq("alt expressions", TextEngine.parseAlternatives("plus court\ntout à fait", excluding: "x"), ["plus court", "tout à fait"])
+
+        print(failures == 0 ? "[test-cleaning] OK" : "[test-cleaning] \(failures) ÉCHEC(S)")
         exit(failures == 0 ? 0 : 1)
     }
 
