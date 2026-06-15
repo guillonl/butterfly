@@ -35,44 +35,51 @@ Un clic sur l'icône papillon de la barre de menus ouvre l'**historique** de tes
 
 ## Installation
 
-### 1. Prérequis
+### 1. Le plus simple : le DMG
 
-- **macOS 26 (Tahoe)** ou plus récent, Mac Apple Silicon
-- Les Command Line Tools d'Apple : `xcode-select --install`
-- [Homebrew](https://brew.sh) pour installer Ollama
+1. Télécharge **`Butterfly.dmg`**, ouvre-le, et glisse **Butterfly** dans le dossier **Applications**.
+2. Au premier lancement, macOS bloque les apps qui ne viennent pas de l'App Store. C'est normal :
+   - Double-clique **Butterfly** → un message apparaît → clique **« OK »** (pas « Mettre à la corbeille »).
+   - Va dans **Réglages Système → Confidentialité et sécurité**, descends jusqu'à la section **Sécurité**, et clique **« Ouvrir quand même »** à côté de Butterfly, puis confirme.
+   - C'est à faire **une seule fois**. (Sur macOS 15+ le clic droit → Ouvrir ne suffit plus, il faut bien passer par les Réglages.)
+3. Butterfly t'accueille avec un **guide de démarrage** : il vérifie le moteur d'intelligence et te guide pour les autorisations, avec un bouton pour chaque étape.
 
-### 2. Le moteur IA (gratuit, au choix)
+### 2. Le moteur d'intelligence
 
-**Option A, recommandée : Ollama + Qwen3 (open source).** Un seul téléchargement de ~2,5 Go :
+Butterfly utilise en priorité **Apple Intelligence**, l'IA intégrée à macOS : **rien à installer, rien à télécharger**, tout reste sur ton Mac. Il suffit qu'Apple Intelligence soit activé (Réglages Système → **Apple Intelligence et Siri**) — le guide de démarrage propose un bouton pour le faire.
 
-```bash
-brew install --cask ollama-app
-ollama pull hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
-```
+> **Option avancée — Ollama.** Sur un Mac qui ne prend pas en charge Apple Intelligence, ou si tu préfères un modèle open source (Qwen3 4B), installe Ollama et Butterfly l'utilisera automatiquement :
+> ```bash
+> brew install --cask ollama-app
+> ollama pull hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M
+> ```
+> Pas besoin de lancer Ollama toi-même, l'app démarre le serveur en arrière-plan quand il le faut.
 
-**Option B : Apple Intelligence**, s'il est activé sur ton Mac (Réglages Système → Apple Intelligence et Siri).
+### 3. Les autorisations
 
-Butterfly choisit tout seul : Ollama en priorité, bascule sur Apple Intelligence sinon. Pas besoin de lancer Ollama toi-même, l'app démarre le serveur en arrière-plan quand il le faut.
+Au premier usage, macOS demande deux autorisations (le guide de démarrage propose un bouton pour chacune) :
 
-### 3. Builder et installer l'app
+- **Enregistrement de l'écran** — pour lire le texte sous la loupe (⌥⌘B). macOS proposera **« Quitter et rouvrir »** : clique ce bouton, c'est obligatoire.
+- **Accessibilité** — pour corriger le texte sélectionné dans une autre app (⌃⌘B).
+
+## Installer depuis les sources
 
 ```bash
 git clone https://github.com/guillonl/butterfly.git
 cd butterfly
-bash scripts/build.sh
+bash scripts/build.sh                       # → dist/Butterfly.app (signé localement)
 cp -R dist/Butterfly.app /Applications/
-open /Applications/Butterfly.app
+bash scripts/make_dmg.sh                     # → dist/Butterfly-<version>.dmg (drag-and-drop)
 ```
 
-### 4. La permission d'enregistrement de l'écran
-
-Au premier **⌥⌘B**, macOS demande l'autorisation d'enregistrement de l'écran (nécessaire pour lire le texte sous la loupe) :
-
-1. « Ouvrir les Réglages Système » → active **Butterfly**.
-2. macOS propose **« Quitter et rouvrir »** : clique ce bouton, c'est obligatoire.
-3. Re-appuie sur ⌥⌘B, c'est parti.
-
-> Note : par défaut l'app est signée localement (ad hoc). Si tu re-buildes une nouvelle version, macOS oubliera les autorisations ; purge les entrées avec `tccutil reset ScreenCapture com.leoguillon.butterfly` (et `Accessibility`) puis ré-accorde-les. Pour que les permissions survivent aux rebuilds, crée une fois un certificat local de confiance nommé « Butterfly Dev » (certificat self-signed avec l'extension codeSigning, importé et approuvé dans ton trousseau de session) : `scripts/build.sh` le détecte et signe avec automatiquement.
+> **Signature & permissions.** L'app est signée localement (ad hoc, ou avec un certificat self-signed « Butterfly Dev »). Elle n'est **pas notarisée** : le DMG reste donc soumis à l'étape Gatekeeper ci-dessus chez les destinataires. Pour une distribution sans aucun avertissement, il faudrait un compte Apple Developer (Developer ID + notarisation). Si tu re-buildes, purge au besoin les autorisations avec `tccutil reset ScreenCapture com.leoguillon.butterfly` (et `Accessibility`). Pour que les permissions survivent aux rebuilds, crée une fois un certificat local « Butterfly Dev » (self-signed, extension codeSigning, approuvé dans ton trousseau) : `scripts/build.sh` le détecte et signe avec automatiquement.
+>
+> **Tester une version côte à côte.** Pour installer une « Butterfly Beta » sans toucher à ta version stable (bundle id, préférences et permissions séparés) :
+> ```bash
+> BUTTERFLY_APP_NAME="Butterfly Beta" BUTTERFLY_BUNDLE_ID="com.leoguillon.butterfly.beta" bash scripts/build.sh
+> cp -R "dist/Butterfly Beta.app" /Applications/
+> ```
+> Quitte l'une quand tu testes l'autre : les deux partagent les mêmes raccourcis par défaut (⌥⌘B / ⌃⌘B).
 
 ## Raccourcis
 
@@ -118,10 +125,14 @@ swift build -c release                     # build
 ./.build/release/Butterfly --demo          # panneau résultat avec données fictives
 ./.build/release/Butterfly --demo-overlay  # ouvre l'overlay loupe au lancement
 ./.build/release/Butterfly --demo-history  # ouvre l'historique avec données fictives
+./.build/release/Butterfly --demo-onboarding # ouvre le guide de démarrage
+./.build/release/Butterfly --test-resize   # test du resize du panneau (sans souris)
+./.build/release/Butterfly --test-replace  # test du remplacement de mot
 swift scripts/make_icon.swift              # regénérer l'icône papillon
+swift scripts/make_dmg_background.swift    # regénérer le fond du DMG
 ```
 
-Architecture : `HotKeyManager` (hotkey Carbon, zéro permission) → `ScreenCaptureService` (ScreenCaptureKit, écran gelé) → `OverlayView` (loupe SwiftUI) → `OCRService` (Vision) → `TextEngine` (Ollama / Apple FoundationModels, streaming) → panneaux SwiftUI en `glassEffect`.
+Architecture : `HotKeyManager` (hotkey Carbon, zéro permission) → `ScreenCaptureService` (ScreenCaptureKit, écran gelé) → `OverlayView` (loupe SwiftUI) → `OCRService` (Vision) → `TextEngine` (Apple FoundationModels en priorité, Ollama en secours, streaming) → panneaux SwiftUI en `glassEffect`.
 
 ## Licence
 
