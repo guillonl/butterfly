@@ -1,8 +1,8 @@
 #!/bin/zsh
 # Construit le DMG d'installation drag-and-drop de Butterfly :
 # une fenêtre Finder stylée avec l'app à gauche, un alias /Applications à
-# droite, et un fond avec une flèche. Consomme dist/Butterfly.app (produit
-# par scripts/build.sh) et écrit dist/Butterfly-<version>.dmg.
+# droite, et un fond avec une flèche. Consomme le bundle produit par
+# scripts/build.sh et écrit dist/Butterfly-<version>.dmg.
 #
 #   bash scripts/make_dmg.sh
 #
@@ -10,7 +10,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP="dist/Butterfly.app"
+ROOT="$(pwd)"
+BUILD="${BUTTERFLY_BUILD_DIR:-/private/tmp/butterfly-release-build}"
+APP="$BUILD/Butterfly.app"
 VOLNAME="Butterfly"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Info.plist)"
 DMG="dist/Butterfly-${VERSION}.dmg"
@@ -21,14 +23,12 @@ if ! command -v create-dmg >/dev/null; then
   exit 1
 fi
 
-# 1. S'assurer que l'app existe (sinon la builder + signer).
-[ -d "$APP" ] || bash scripts/build.sh
+# 1. Rebuilder systématiquement l'app dans un dossier local neutre. Le dépôt
+#    peut vivre dans un dossier synchronisé, mais jamais le bundle à signer.
+env BUTTERFLY_BUILD_DIR="$BUILD" bash scripts/build.sh
 
-# 2. Tout le travail se fait dans un dossier temporaire LOCAL (hors Dropbox).
-#    Le repo vit sous ~/Library/CloudStorage/Dropbox : le file provider y
-#    intercepte les I/O et fait échouer `hdiutil create` (« Resource busy »),
-#    car hdiutil attache un vrai device disque. On construit donc hors-cloud
-#    puis on copie le .dmg fini dans dist/.
+# 2. Tout le travail se fait dans un dossier temporaire local pour éviter les
+#    attributs Finder/iCloud qui invalident une signature.
 WORK="$(mktemp -d -t butterfly-dmg)"
 trap 'rm -rf "$WORK"' EXIT
 STAGING="$WORK/staging"
@@ -76,21 +76,26 @@ if [ "$RC" -gt 2 ]; then
   exit "$RC"
 fi
 
-# 6. Signer le DMG avec la même identité locale que l'app (cohérence ; cela ne
-#    le notarise pas et ne lève pas l'écran Gatekeeper, cf. README).
-IDENTITY="-"
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "Butterfly Dev"; then
-  IDENTITY="Butterfly Dev"
-fi
-codesign --force --sign "$IDENTITY" "$WORK_DMG"
+# 6. Signer le DMG avec la même identité que l'app.
+IDENTITY="${BUTTERFLY_SIGN_IDENTITY:--}"
+SIGN_ARGS=(--force --sign "$IDENTITY")
+if [[ "$IDENTITY" != "-" ]]; then SIGN_ARGS+=(--timestamp); fi
+codesign "${SIGN_ARGS[@]}" "$WORK_DMG"
 
-# 7. Déposer le .dmg fini dans dist/ (copie d'un fichier déjà formé : Dropbox
-#    n'interfère plus, contrairement à hdiutil qui attachait un device) et sur
-#    le Bureau, prêt à envoyer.
+# 7. Notariser et agrafer quand un profil notarytool est fourni. Sans profil,
+#    le DMG local reste valide mais ne doit pas être présenté comme publié.
+if [[ -n "${BUTTERFLY_NOTARY_PROFILE:-}" && "$IDENTITY" != "-" ]]; then
+  xcrun notarytool submit "$WORK_DMG" \
+    --keychain-profile "$BUTTERFLY_NOTARY_PROFILE" --wait
+  xcrun stapler staple "$WORK_DMG"
+  xcrun stapler validate "$WORK_DMG"
+fi
+
+# 8. Déposer le .dmg fini dans dist/ et sur le Bureau, prêt à envoyer.
 mkdir -p dist
 rm -f "$DMG"
 cp "$WORK_DMG" "$DMG"
-DESKTOP_DMG="$HOME/Desktop/Butterfly-${VERSION}.dmg"
+DESKTOP_DMG="/Users/leoguillon/Desktop/Butterfly-${VERSION}.dmg"
 cp "$WORK_DMG" "$DESKTOP_DMG"
 echo "OK → $DMG"
 echo "   → $DESKTOP_DMG (copie prête à envoyer, signée : $IDENTITY)"

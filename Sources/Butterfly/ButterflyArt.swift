@@ -47,25 +47,41 @@ struct ButterflyShape: Shape {
 enum ButterflyArt {
 
     /// Icône template 20×20 pour la barre de menus (s'adapte clair/sombre).
-    /// Le glyphe papillon n'occupe que ~72 % de sa bounding box : on
-    /// surdimensionne le rect de dessin pour atteindre la taille optique
-    /// des icônes système voisines.
+    /// Quatre rubans repliés reprennent le langage du logo d'app sans son
+    /// fond, afin de rester lisibles à la taille d'une icône système.
     static func statusItemImage() -> NSImage {
         let size = NSSize(width: 20, height: 20)
         let image = NSImage(size: size, flipped: true) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            let overscan: CGFloat = 1.32
-            let side = rect.width * overscan
-            let drawRect = CGRect(
-                x: rect.midX - side / 2,
-                y: rect.minY - side * 0.085,
-                width: side,
-                height: side
-            )
-            let path = ButterflyShape().path(in: drawRect)
-            context.addPath(path.cgPath)
+            context.setStrokeColor(NSColor.black.cgColor)
             context.setFillColor(NSColor.black.cgColor)
+            context.setLineWidth(3.2)
+            context.setLineCap(.round)
+            context.setLineJoin(.round)
+
+            func ribbon(_ points: [CGPoint]) {
+                guard let first = points.first else { return }
+                let path = CGMutablePath()
+                path.move(to: first)
+                if points.count == 3 {
+                    path.addQuadCurve(to: points[2], control: points[1])
+                } else {
+                    for point in points.dropFirst() { path.addLine(to: point) }
+                }
+                context.addPath(path)
+                context.strokePath()
+            }
+
+            ribbon([CGPoint(x: 9.0, y: 9.7), CGPoint(x: 2.8, y: 1.8), CGPoint(x: 2.6, y: 8.2)])
+            ribbon([CGPoint(x: 11.0, y: 9.7), CGPoint(x: 17.2, y: 1.8), CGPoint(x: 17.4, y: 8.2)])
+            ribbon([CGPoint(x: 8.9, y: 10.8), CGPoint(x: 3.3, y: 18.0), CGPoint(x: 3.5, y: 12.2)])
+            ribbon([CGPoint(x: 11.1, y: 10.8), CGPoint(x: 16.7, y: 18.0), CGPoint(x: 16.5, y: 12.2)])
+
+            let body = CGPath(roundedRect: CGRect(x: 9.2, y: 7.0, width: 1.6, height: 9.7),
+                              cornerWidth: 0.8, cornerHeight: 0.8, transform: nil)
+            context.addPath(body)
             context.fillPath()
+            context.fillEllipse(in: CGRect(x: 9.15, y: 4.9, width: 1.7, height: 1.7))
             return true
         }
         image.isTemplate = true

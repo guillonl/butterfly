@@ -5,6 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     /// Tente d'appliquer le nouveau raccourci ; retourne false si refusé.
     let onShortcutChange: (HotKeyAction, Shortcut) -> Bool
+    let onOpenGuide: () -> Void
     let onClose: () -> Void
 
     @State private var shortcuts: [HotKeyAction: Shortcut] = [
@@ -16,6 +17,8 @@ struct SettingsView: View {
     @State private var keyMonitor: Any?
     @State private var appeared = false
     @State private var mode: ProcessingMode = .current
+    @State private var launchAtLogin = LoginItem.isEnabled
+    @State private var systemError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -58,12 +61,56 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .accessibilityLabel(L10n.t("settings.mode"))
                     .labelsHidden()
                     .controlSize(.small)
                     .padding(.leading, 36)
                     .onChange(of: mode) { _, newValue in
                         ProcessingMode.save(newValue)
                     }
+                }
+                Divider().opacity(0.3)
+                HStack(spacing: 12) {
+                    Image(systemName: "power")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.t("settings.login"))
+                            .font(.system(size: 13, weight: .medium))
+                        Text(L10n.t("settings.loginHint"))
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer(minLength: 12)
+                    Toggle("", isOn: $launchAtLogin)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .accessibilityLabel(L10n.t("settings.login"))
+                        .onChange(of: launchAtLogin) { _, enabled in
+                            do {
+                                try LoginItem.setEnabled(enabled)
+                                systemError = nil
+                            } catch {
+                                launchAtLogin = LoginItem.isEnabled
+                                systemError = L10n.t("settings.loginError")
+                            }
+                        }
+                }
+                HStack(spacing: 8) {
+                    permissionBadge(
+                        title: L10n.t("onboard.screen.title"),
+                        granted: ScreenCaptureService.hasPermission
+                    )
+                    permissionBadge(
+                        title: L10n.t("onboard.ax.title"),
+                        granted: SelectedTextService.hasPermission
+                    )
+                    Spacer()
+                    Button(L10n.t("settings.permissions"), action: onOpenGuide)
+                        .buttonStyle(.link)
+                        .controlSize(.small)
                 }
                 if let errorMessage {
                     HStack(spacing: 6) {
@@ -74,6 +121,11 @@ struct SettingsView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
+                }
+                if let systemError {
+                    Label(systemError, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.orange)
                 }
                 Text(L10n.t("settings.note"))
                     .font(.system(size: 10))
@@ -89,6 +141,7 @@ struct SettingsView: View {
         .scaleEffect(appeared ? 1 : 0.96, anchor: .top)
         .opacity(appeared ? 1 : 0)
         .onAppear {
+            launchAtLogin = LoginItem.isEnabled
             withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) { appeared = true }
             installMonitor()
         }
@@ -112,6 +165,7 @@ struct SettingsView: View {
             }
             .buttonStyle(.glass)
             .buttonBorderShape(.circle)
+            .accessibilityLabel(L10n.t("panel.close"))
         }
         .padding(.horizontal, 20)
         .padding(.top, 16)
@@ -143,7 +197,16 @@ struct SettingsView: View {
             }
             .buttonStyle(.glass)
             .buttonBorderShape(.capsule)
+            .accessibilityLabel(title)
+            .accessibilityHint(hint)
         }
+    }
+
+    private func permissionBadge(title: String, granted: Bool) -> some View {
+        Label(title, systemImage: granted ? "checkmark.circle.fill" : "exclamationmark.circle")
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(granted ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+            .accessibilityValue(granted ? L10n.t("settings.allowed") : L10n.t("settings.required"))
     }
 
     private func installMonitor() {
@@ -189,6 +252,7 @@ struct SettingsView: View {
 final class SettingsPanelController {
     private var panel: ResultPanel?
     var onShortcutChange: ((HotKeyAction, Shortcut) -> Bool)?
+    var onOpenGuide: (() -> Void)?
 
     func show() {
         close()
@@ -216,6 +280,7 @@ final class SettingsPanelController {
                 onShortcutChange: { [weak self] action, shortcut in
                     self?.onShortcutChange?(action, shortcut) ?? false
                 },
+                onOpenGuide: { [weak self] in self?.onOpenGuide?() },
                 onClose: { [weak self] in self?.close() }
             )
         )

@@ -1,12 +1,39 @@
 import AppKit
-import ApplicationServices
+@preconcurrency import ApplicationServices
 import Carbon.HIToolbox
 
 /// Récupère le texte sélectionné dans l'application frontale.
 /// Stratégie : API Accessibilité d'abord (propre, ne touche pas au
 /// presse-papiers), sinon simulation de ⌘C avec sauvegarde/restauration
 /// du presse-papiers. Les deux voies exigent la permission Accessibilité.
+@MainActor
 enum SelectedTextService {
+
+    private struct PasteboardSnapshot {
+        let items: [[NSPasteboard.PasteboardType: Data]]
+
+        init(_ pasteboard: NSPasteboard) {
+            items = (pasteboard.pasteboardItems ?? []).map { item in
+                Dictionary(uniqueKeysWithValues: item.types.compactMap { type in
+                    item.data(forType: type).map { (type, $0) }
+                })
+            }
+        }
+
+        func restore(to pasteboard: NSPasteboard) {
+            pasteboard.clearContents()
+            let restored: [NSPasteboardItem] = items.map { values in
+                let item = NSPasteboardItem()
+                for (type, data) in values {
+                    item.setData(data, forType: type)
+                }
+                return item
+            }
+            if !restored.isEmpty {
+                pasteboard.writeObjects(restored)
+            }
+        }
+    }
 
     static var hasPermission: Bool {
         AXIsProcessTrusted()
@@ -49,7 +76,7 @@ enum SelectedTextService {
     /// d'origine pour rester discret.
     private static func pasteboardSelectedText() async -> String? {
         let pasteboard = NSPasteboard.general
-        let savedString = pasteboard.string(forType: .string)
+        let snapshot = PasteboardSnapshot(pasteboard)
         let savedChangeCount = pasteboard.changeCount
 
         postCommandC()
@@ -64,12 +91,11 @@ enum SelectedTextService {
             }
         }
 
-        // Restaurer le presse-papiers d'origine
-        if copied != nil {
-            pasteboard.clearContents()
-            if let savedString {
-                pasteboard.setString(savedString, forType: .string)
-            }
+        // Restaurer l'intégralité du presse-papiers d'origine, pas seulement
+        // le texte. L'ancienne implémentation supprimait les images, fichiers
+        // et formats enrichis copiés juste avant d'utiliser Butterfly.
+        if pasteboard.changeCount != savedChangeCount {
+            snapshot.restore(to: pasteboard)
         }
 
         guard let copied, !copied.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

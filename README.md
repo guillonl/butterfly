@@ -84,14 +84,9 @@ cp -R dist/Butterfly.app /Applications/
 bash scripts/make_dmg.sh                     # → dist/Butterfly-<version>.dmg (drag-and-drop)
 ```
 
-> **Signature & permissions.** L'app est signée localement (ad hoc, ou avec un certificat self-signed « Butterfly Dev »). Elle n'est **pas notarisée** : le DMG reste donc soumis à l'étape Gatekeeper ci-dessus chez les destinataires. Pour une distribution sans aucun avertissement, il faudrait un compte Apple Developer (Developer ID + notarisation). Si tu re-buildes, purge au besoin les autorisations avec `tccutil reset ScreenCapture com.leoguillon.butterfly` (et `Accessibility`). Pour que les permissions survivent aux rebuilds, crée une fois un certificat local « Butterfly Dev » (self-signed, extension codeSigning, approuvé dans ton trousseau) : `scripts/build.sh` le détecte et signe avec automatiquement.
->
-> **Tester une version côte à côte.** Pour installer une « Butterfly Beta » sans toucher à ta version stable (bundle id, préférences et permissions séparés) :
-> ```bash
-> BUTTERFLY_APP_NAME="Butterfly Beta" BUTTERFLY_BUNDLE_ID="com.leoguillon.butterfly.beta" bash scripts/build.sh
-> cp -R "dist/Butterfly Beta.app" /Applications/
-> ```
-> Quitte l'une quand tu testes l'autre : les deux partagent les mêmes raccourcis par défaut (⌥⌘B / ⌃⌘B).
+> **Signature & permissions.** Sans variable d'environnement, le build local est signé ad hoc. Pour distribuer, fournis `BUTTERFLY_SIGN_IDENTITY` et `BUTTERFLY_NOTARY_PROFILE` : le script signe en Developer ID, notarise et agrafe le DMG. Les builds se font dans `/private/tmp` afin que les métadonnées iCloud ne cassent pas la signature.
+
+Butterfly 1.9 consolide automatiquement l'historique et les réglages d'une ancienne installation `Butterfly Beta` dans l'app stable, sans écraser les préférences déjà présentes.
 
 ## Raccourcis
 
@@ -115,6 +110,8 @@ Clic droit sur l'icône papillon → **Réglages…** :
 
 - **Raccourcis personnalisables** : clique un raccourci puis tape la nouvelle combinaison (au moins ⌘, ⌥ ou ⌃).
 - **Mode de traitement** : choisis entre **corriger et traduire**, **corriger seulement** (plus rapide, pas d'appel de traduction) ou **traduire seulement** (traduction directe de l'original, sans passer par la correction).
+- **Ouvrir à la connexion** : garde Butterfly disponible dans la barre de menus dès l'ouverture de session.
+- **Autorisations** : vérifie l'état d'Enregistrement de l'écran et d'Accessibilité, puis rouvre le guide si une étape manque.
 
 <p align="center">
   <img src="assets/screenshot-settings.png" width="400" alt="Réglages des raccourcis" />
@@ -135,6 +132,8 @@ Tout tourne sur ta machine : la capture d'écran, l'OCR (Vision d'Apple), la cor
 
 ```bash
 swift build -c release                     # build
+swift test                                 # tests de migration et comportements critiques
+./script/build_and_run.sh --verify          # build, lance et confirme le processus
 ./.build/release/Butterfly --selftest      # test du moteur IA bout en bout (FR↔EN)
 ./.build/release/Butterfly --demo          # panneau résultat avec données fictives
 ./.build/release/Butterfly --demo-overlay  # ouvre l'overlay loupe au lancement
@@ -143,6 +142,7 @@ swift build -c release                     # build
 ./.build/release/Butterfly --test-resize   # test pur de la logique de redimensionnement (bords/coins)
 ./.build/release/Butterfly --test-replace  # test pur du remplacement de mot par un synonyme
 swift scripts/make_icon.swift              # regénérer l'icône papillon
+./scripts/make_icns.sh                     # regénérer le PNG, l'aperçu et le .icns
 swift scripts/make_dmg_background.swift    # regénérer le fond du DMG
 ```
 

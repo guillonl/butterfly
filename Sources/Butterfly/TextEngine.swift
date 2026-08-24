@@ -34,6 +34,7 @@ enum EngineError: LocalizedError {
 /// Double moteur 100 % local et gratuit :
 /// - Ollama + qwen3:4b (open source, Apache 2.0) en priorité
 /// - Apple Intelligence (FoundationModels) en secours
+@MainActor
 final class TextEngine {
     static let shared = TextEngine()
 
@@ -176,7 +177,7 @@ final class TextEngine {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 120
         let body: [String: Any] = [
-            "model": resolvedOllamaModel ?? preferredOllamaModels.last!,
+            "model": resolvedOllamaModel ?? "qwen3:4b",
             "keep_alive": "2h",
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)

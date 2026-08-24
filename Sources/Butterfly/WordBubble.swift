@@ -285,13 +285,15 @@ final class WordBubbleController {
         resizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: panel, queue: .main
         ) { [weak self] _ in
-            guard let self, let panel = self.panel else { return }
-            if self.anchorMode == .above {
-                panel.setFrameOrigin(self.bottomLeft)
-            } else {
-                panel.setFrameTopLeftPoint(self.topLeft)
+            Task { @MainActor [weak self] in
+                guard let self, let panel = self.panel else { return }
+                if self.anchorMode == .above {
+                    panel.setFrameOrigin(self.bottomLeft)
+                } else {
+                    panel.setFrameTopLeftPoint(self.topLeft)
+                }
+                panel.invalidateShadow()
             }
-            panel.invalidateShadow()
         }
 
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in

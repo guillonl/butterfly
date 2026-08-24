@@ -5,6 +5,7 @@ import Carbon.HIToolbox
 /// Contrairement aux NSEvent global monitors, cette API ne demande
 /// aucune permission Accessibilité. Gère plusieurs raccourcis,
 /// ré-enregistrables à chaud (réglages).
+@MainActor
 final class HotKeyManager {
     static let shared = HotKeyManager()
 

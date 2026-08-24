@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var capturing = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        LegacyPreferencesMigrator.migrateIfNeeded()
         setupStatusItem()
 
         HotKeyManager.shared.handlers[.capture] = { [weak self] in self?.startCapture() }
@@ -29,6 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ShortcutStore.save(shortcut, for: action)
             self?.updateMenuShortcuts()
             return true
+        }
+        settingsPanel.onOpenGuide = { [weak self] in
+            self?.settingsPanel.close()
+            self?.onboardingPanel.show()
         }
 
         // Cliquer un mot dans le panneau résultat → bulle au-dessus du mot ;
@@ -99,8 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = ButterflyArt.statusItemImage()
-        // Tooltip = nom du bundle : distingue « Butterfly Beta » de la stable
-        // quand les deux tournent côte à côte.
+        // Tooltip localisé par le nom du bundle.
         statusItem.button?.toolTip = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Butterfly"
         // Clic gauche → panneau historique ; clic droit → menu d'actions.
         statusItem.button?.action = #selector(statusItemClicked)
@@ -252,7 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Précharge le modèle pendant que l'utilisateur fait sa sélection :
         // au moment de l'OCR, le moteur est déjà chaud.
-        Task.detached(priority: .utility) {
+        Task(priority: .utility) {
             await TextEngine.shared.warmup()
         }
 
@@ -355,7 +359,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        Task.detached(priority: .utility) {
+        Task(priority: .utility) {
             await TextEngine.shared.warmup()
         }
 
@@ -448,8 +452,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: L10n.t("alert.ax.open"))
         alert.addButton(withTitle: L10n.t("alert.ax.later"))
         if alert.runModal() == .alertFirstButtonReturn {
-            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-            NSWorkspace.shared.open(url)
+            Onboarding.openAccessibilitySettings()
         }
     }
 
@@ -462,8 +465,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: L10n.t("alert.screen.open"))
         alert.addButton(withTitle: L10n.t("alert.screen.later"))
         if alert.runModal() == .alertFirstButtonReturn {
-            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
-            NSWorkspace.shared.open(url)
+            Onboarding.openScreenRecordingSettings()
         }
     }
 
