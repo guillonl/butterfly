@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Carte de résultat en Liquid Glass : texte détecté, correction, traduction.
+/// Panneau de résultat : chaque étape est une carte compacte, alignée sur la
+/// grammaire visuelle de Jauge sans perdre la sélection de texte ni le resize.
 struct ResultView: View {
     @ObservedObject var model: ResultModel
     var onClose: () -> Void
@@ -38,11 +39,8 @@ struct ResultView: View {
             maxHeight: fluid ? .infinity : nil,
             alignment: .top
         )
-        .glassEffect(.regular, in: .rect(cornerRadius: 28))
-        // Le backdrop du verre occupe les bounds carrés de la fenêtre :
-        // sans clip, ses bords débordent des coins arrondis.
-        .clipShape(RoundedRectangle(cornerRadius: 28))
-        .scaleEffect(appeared ? 1 : 0.94, anchor: .top)
+        .butterflyPanel()
+        .scaleEffect(appeared ? 1 : 0.98, anchor: .top)
         .opacity(appeared ? 1 : 0)
         .onAppear {
             withAnimation(.spring(response: 0.36, dampingFraction: 0.82)) { appeared = true }
@@ -67,31 +65,32 @@ struct ResultView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 10) {
-            ButterflyShape()
-                .fill(.primary)
-                .frame(width: 22, height: 22)
+        HStack(spacing: 9) {
             Text("Butterfly")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(ButterflyTokens.ink)
             if !model.engineLabel.isEmpty {
                 Text(model.engineLabel)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.quaternary.opacity(0.6), in: Capsule())
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(ButterflyTokens.dim)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2.5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            .fill(ButterflyTokens.hairline)
+                    )
             }
             Spacer()
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .bold))
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
+            .buttonStyle(.borderless)
+            .accessibilityLabel(L10n.t("panel.close"))
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 20)
-        .padding(.bottom, 16)
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 14)
         .contentShape(Rectangle())
         // Seul le header déplace la fenêtre : le reste du panneau est réservé
         // à la sélection de texte.
@@ -129,12 +128,12 @@ struct ResultView: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                 Text(fatal)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(ButterflyTokens.dim)
             }
-            .padding(24)
+            .padding(18)
         } else {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 10) {
                 originalSection
                 if model.mode.showsCorrection {
                     correctionSection
@@ -146,9 +145,9 @@ struct ResultView: View {
                     regenerateButton
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
-            .padding(.bottom, 20)
+            .padding(.horizontal, 18)
+            .padding(.top, 4)
+            .padding(.bottom, 18)
         }
     }
 
@@ -157,8 +156,8 @@ struct ResultView: View {
             sectionLabel(L10n.t("panel.detected"))
             if let original = model.original {
                 Text(original)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(ButterflyTokens.dim)
                     .lineLimit(originalExpanded ? nil : collapsedLineLimit)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -174,7 +173,7 @@ struct ResultView: View {
                                 .font(.system(size: 8, weight: .bold))
                         }
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(ButterflyTokens.dim)
                     }
                     .buttonStyle(.plain)
                 }
@@ -182,11 +181,13 @@ struct ResultView: View {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text(L10n.t("panel.reading"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 11))
+                        .foregroundStyle(ButterflyTokens.dim)
                 }
             }
         }
+        .padding(ButterflyTokens.cardPadding)
+        .butterflyCard()
     }
 
     /// Heuristique : le texte détecté risque d'être tronqué à 3 lignes.
@@ -206,8 +207,6 @@ struct ResultView: View {
             }
             .font(.system(size: 12, weight: .medium))
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.capsule)
         .controlSize(.small)
         .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -219,15 +218,20 @@ struct ResultView: View {
                 if noCorrectionNeeded {
                     Text(L10n.t("panel.noChange"))
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.quaternary.opacity(0.6), in: Capsule())
+                        .foregroundStyle(ButterflyTokens.dim)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2.5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(ButterflyTokens.hairline)
+                        )
                 }
                 Spacer()
             }
             stateView(model.correction, section: .correction, emphasized: true)
         }
+        .padding(ButterflyTokens.cardPadding)
+        .butterflyCard()
     }
 
     /// Vrai quand le texte corrigé est identique à l'original (aucune faute).
@@ -249,6 +253,8 @@ struct ResultView: View {
             }
             stateView(model.translation, section: .translation, emphasized: false)
         }
+        .padding(ButterflyTokens.cardPadding)
+        .butterflyCard()
     }
 
     private var languageMenu: some View {
@@ -269,8 +275,6 @@ struct ResultView: View {
                 .font(.system(size: 11, weight: .medium))
         }
         .menuStyle(.button) // un seul chevron : l'indicateur natif (à droite)
-        .buttonStyle(.glass)
-        .buttonBorderShape(.capsule)
         .controlSize(.small)
         .fixedSize()
     }
@@ -284,7 +288,7 @@ struct ResultView: View {
             HStack(alignment: .top, spacing: 12) {
                 TappableText(
                     text: text,
-                    font: .system(size: emphasized ? 14 : 13, weight: emphasized ? .medium : .regular),
+                    font: .system(size: emphasized ? 13 : 12.5, weight: emphasized ? .medium : .regular),
                     onWordTap: { tokenIndex, word in onWordTap?(section, tokenIndex, word) }
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -294,19 +298,16 @@ struct ResultView: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 11))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(ButterflyTokens.warn)
                 Text(message)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(ButterflyTokens.dim)
             }
         }
     }
 
     private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.system(size: 10, weight: .semibold))
-            .tracking(1.2)
-            .foregroundStyle(.secondary)
+        ButterflySectionTitle(text: text)
     }
 }
 

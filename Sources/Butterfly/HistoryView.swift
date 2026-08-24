@@ -11,31 +11,23 @@ struct HistoryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider()
-                .opacity(0.4)
-                .padding(.horizontal, 20)
             if store.entries.isEmpty {
                 emptyState
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(store.entries) { entry in
                             HistoryRow(entry: entry)
-                            if entry.id != store.entries.last?.id {
-                                Divider()
-                                    .opacity(0.25)
-                                    .padding(.leading, 20)
-                            }
                         }
                     }
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 11)
+                    .padding(.bottom, 11)
                 }
             }
         }
         .frame(width: 360, height: 440, alignment: .top)
-        .glassEffect(.regular, in: .rect(cornerRadius: 24))
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        .scaleEffect(appeared ? 1 : 0.96, anchor: .top)
+        .butterflyPanel()
+        .scaleEffect(appeared ? 1 : 0.98, anchor: .top)
         .opacity(appeared ? 1 : 0)
         .onAppear {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) { appeared = true }
@@ -43,23 +35,25 @@ struct HistoryView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            ButterflyShape()
-                .fill(.primary)
-                .frame(width: 20, height: 20)
-            Text("Butterfly")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Butterfly")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(ButterflyTokens.ink)
+                Text(L10n.t("history.subtitle"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(ButterflyTokens.dim)
+            }
             Spacer()
             Button(action: onCapture) {
                 HStack(spacing: 6) {
                     Image(systemName: "plus.magnifyingglass")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 10, weight: .medium))
                     Text("⌥⌘B")
                         .font(.system(size: 10, weight: .semibold))
                 }
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.capsule)
+            .controlSize(.small)
             .help(L10n.t("menu.capture"))
             if !store.entries.isEmpty {
                 Button {
@@ -68,32 +62,31 @@ struct HistoryView: View {
                     Image(systemName: "trash")
                         .font(.system(size: 10, weight: .semibold))
                 }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
+                .buttonStyle(.borderless)
                 .help(L10n.t("history.clear"))
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 18)
         .padding(.top, 16)
-        .padding(.bottom, 12)
+        .padding(.bottom, 14)
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             Spacer()
             ButterflyShape()
-                .fill(.quaternary)
-                .frame(width: 48, height: 48)
+                .fill(ButterflyTokens.dim.opacity(0.5))
+                .frame(width: 36, height: 36)
             Text(L10n.t("history.empty"))
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(ButterflyTokens.ink)
             Text(L10n.t("history.emptyHint"))
-                .font(.system(size: 11))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 10.5))
+                .foregroundStyle(ButterflyTokens.dim)
             Spacer()
         }
         .frame(maxWidth: .infinity)
-        .padding(24)
+        .padding(18)
     }
 }
 
@@ -111,7 +104,8 @@ struct HistoryRow: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.corrected ?? entry.original)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(ButterflyTokens.ink)
                     .lineLimit(2)
                     .textSelection(.enabled)
                 HStack(spacing: 6) {
@@ -125,7 +119,7 @@ struct HistoryRow: View {
                     }
                 }
                 .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(ButterflyTokens.dim)
             }
             Spacer(minLength: 8)
             HStack(spacing: 6) {
@@ -139,8 +133,8 @@ struct HistoryRow: View {
                 }
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(11)
+        .butterflyCard()
     }
 }
 
@@ -161,7 +155,7 @@ final class HistoryPanelController {
         }
     }
 
-    func show(relativeTo button: NSStatusBarButton) {
+    func show(relativeTo button: NSStatusBarButton, store: HistoryStore = .shared) {
         close()
         guard let buttonWindow = button.window else { return }
         let buttonFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
@@ -185,7 +179,7 @@ final class HistoryPanelController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
         let host = NSHostingController(
-            rootView: HistoryView(store: HistoryStore.shared, onCapture: { [weak self] in
+            rootView: HistoryView(store: store, onCapture: { [weak self] in
                 self?.close()
                 self?.onCapture?()
             })

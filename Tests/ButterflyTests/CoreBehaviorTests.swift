@@ -23,4 +23,32 @@ struct CoreBehaviorTests {
         #expect(frame.width == 380)
         #expect(frame.minX == 100)
     }
+
+    @Test("le mode démo ne pollue pas l'historique persistant")
+    @MainActor
+    func previewHistoryDoesNotPersist() {
+        let before = UserDefaults.standard.data(forKey: "history")
+        let preview = HistoryStore(previewEntries: [
+            HistoryEntry(
+                id: UUID(),
+                date: Date(),
+                original: "fôte",
+                corrected: "faute",
+                translated: "mistake",
+                targetLanguage: "en"
+            ),
+        ])
+
+        preview.add(HistoryEntry(
+            id: UUID(),
+            date: Date(),
+            original: "aperçu",
+            corrected: "aperçu",
+            translated: "preview",
+            targetLanguage: "en"
+        ))
+
+        #expect(preview.entries.count == 2)
+        #expect(UserDefaults.standard.data(forKey: "history") == before)
+    }
 }

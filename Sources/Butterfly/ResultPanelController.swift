@@ -408,7 +408,9 @@ final class ResultPanelController {
 
         // Taille mémorisée d'un redimensionnement manuel précédent : le
         // panneau démarre alors en mode « fluide » (la fenêtre pilote la vue).
-        let savedSize = PanelSizeStore.saved
+        // Le mode démo sert aux captures produit : il doit montrer la taille
+        // canonique, indépendamment d'un resize personnel mémorisé sur le Mac.
+        let savedSize = CommandLine.arguments.contains("--demo") ? nil : PanelSizeStore.saved
         let initialSize = savedSize ?? NSSize(width: panelWidth, height: estimatedHeight)
 
         // Overlay (origine haut-gauche) → coordonnées globales AppKit (bas-gauche)

@@ -18,9 +18,15 @@ final class HistoryStore: ObservableObject {
 
     private let storageKey = "history"
     private let maxEntries = 50
+    private let persistsChanges: Bool
 
-    init() {
-        load()
+    init(previewEntries: [HistoryEntry]? = nil) {
+        persistsChanges = previewEntries == nil
+        if let previewEntries {
+            entries = previewEntries
+        } else {
+            load()
+        }
     }
 
     func add(_ entry: HistoryEntry) {
@@ -56,6 +62,7 @@ final class HistoryStore: ObservableObject {
     }
 
     private func save() {
+        guard persistsChanges else { return }
         guard let data = try? JSONEncoder().encode(entries) else { return }
         UserDefaults.standard.set(data, forKey: storageKey)
     }

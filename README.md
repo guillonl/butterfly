@@ -5,23 +5,31 @@
 <h1 align="center">Butterfly</h1>
 
 <p align="center">
-  <strong>Ton correcteur et traducteur, partout sur ton Mac.</strong><br/>
-  Un raccourci, et n'importe quel texte affiché à l'écran est corrigé et traduit dans l'instant.<br/>
-  <strong>100 % local, 100 % gratuit.</strong> Aucun texte ne quitte jamais ta machine.
+  <strong>Corrige et traduis n'importe quel texte sur ton Mac.</strong><br/>
+  Sélectionne une zone à l'écran ou du texte dans une app, Butterfly s'occupe du reste.<br/>
+  <strong>Local, privé et toujours accessible depuis la barre des menus.</strong>
 </p>
 
 <p align="center">
   <img src="assets/screenshot-panel.png" width="440" alt="Panneau de résultat Butterfly" />
 </p>
 
-## Comment ça marche
+## En trois gestes
+
+1. **Capture.** Appuie sur `⌥⌘B` et encadre du texte à l'écran, ou sélectionne du texte puis appuie sur `⌃⌘B`.
+2. **Vérifie.** Butterfly sépare clairement le texte détecté, la correction et la traduction.
+3. **Réutilise.** Copie un résultat, change la langue ou clique un mot pour obtenir une autre formulation.
+
+Tout se passe localement avec Apple Intelligence, ou avec Ollama sur les Mac non compatibles. Aucune clé API et aucun compte ne sont nécessaires.
+
+## Deux façons de récupérer le texte
 
 Deux façons d'attraper du texte, au choix :
 
 1. **N'importe quoi à l'écran (loupe, ⌥⌘B).** Appuie sur **⌥⌘B** : l'écran gèle et une loupe en verre suit ton curseur. Clique-glisse sur le texte à traiter, où qu'il soit (un mail, un Slack, une image, un PDF, une vidéo en pause) : c'est de la reconnaissance visuelle, ça marche même là où le texte n'est pas sélectionnable. Échap pour annuler.
 2. **Du texte déjà sélectionnable (⌃⌘B).** Sélectionne du texte dans n'importe quelle app, puis **⌃⌘B**. Pas de loupe ni d'OCR : Butterfly lit directement ta sélection.
 
-Dans les deux cas, un panneau en verre apparaît avec le texte détecté, sa **correction** et sa **traduction**.
+Dans les deux cas, un panneau compact apparaît avec trois cartes distinctes : le texte détecté, sa **correction** et sa **traduction**.
 
 **Tu choisis ce que Butterfly fait** (clic droit sur l'icône → Réglages → Mode de traitement) :
 
@@ -39,7 +47,7 @@ Dans le panneau :
 
 **Langues : détection automatique + presets.** La langue du texte est détectée toute seule. Chaque langue source mémorise sa cible : par défaut français → anglais et anglais → français ; si tu choisis « Allemand » dans le picker pour un texte français, tous les prochains textes français seront traduits en allemand, sans toucher au preset des autres langues.
 
-Un clic sur l'icône papillon de la barre de menus ouvre l'**historique** de tes 50 dernières corrections, avec boutons copier. Clic droit pour le menu (moteur IA, réglages, quitter).
+Un clic sur l'icône Butterfly de la barre de menus ouvre l'**historique** de tes 50 dernières corrections. Chaque entrée permet de copier directement la correction ou la traduction. Un clic droit ouvre le menu des actions, du moteur IA et des réglages.
 
 <p align="center">
   <img src="assets/screenshot-history.png" width="380" alt="Historique Butterfly" />
@@ -47,14 +55,24 @@ Un clic sur l'icône papillon de la barre de menus ouvre l'**historique** de tes
 
 ## Installation
 
+### Prérequis
+
+- macOS 26 ou plus récent
+- Apple Intelligence activé, ou Ollama comme moteur local de secours
+- deux autorisations macOS guidées au premier lancement : Enregistrement de l'écran et Accessibilité
+
 ### 1. Le plus simple : le DMG
 
-1. Télécharge **`Butterfly.dmg`**, ouvre-le, et glisse **Butterfly** dans le dossier **Applications**.
+1. Télécharge le dernier **`Butterfly-<version>.dmg`**, ouvre-le, puis glisse **Butterfly** dans **Applications**.
 2. Au premier lancement, macOS bloque les apps qui ne viennent pas de l'App Store. C'est normal :
    - Double-clique **Butterfly** → un message apparaît → clique **« OK »** (pas « Mettre à la corbeille »).
    - Va dans **Réglages Système → Confidentialité et sécurité**, descends jusqu'à la section **Sécurité**, et clique **« Ouvrir quand même »** à côté de Butterfly, puis confirme.
    - C'est à faire **une seule fois**. (Sur macOS 15+ le clic droit → Ouvrir ne suffit plus, il faut bien passer par les Réglages.)
-3. Butterfly t'accueille avec un **guide de démarrage** : il vérifie le moteur d'intelligence et te guide pour les autorisations, avec un bouton pour chaque étape.
+3. Ouvre Butterfly depuis **Applications**. Le guide de démarrage vérifie le moteur local et affiche un bouton pour chaque autorisation manquante.
+
+<p align="center">
+  <img src="assets/screenshot-onboarding.png" width="460" alt="Guide de démarrage Butterfly avec les trois prérequis" />
+</p>
 
 ### 2. Le moteur d'intelligence
 
@@ -80,7 +98,7 @@ Au premier usage, macOS demande deux autorisations (le guide de démarrage propo
 git clone https://github.com/guillonl/butterfly.git
 cd butterfly
 bash scripts/build.sh                       # → dist/Butterfly.app (signé localement)
-cp -R dist/Butterfly.app /Applications/
+ditto dist/Butterfly.app /Applications/Butterfly.app
 bash scripts/make_dmg.sh                     # → dist/Butterfly-<version>.dmg (drag-and-drop)
 ```
 
@@ -104,7 +122,7 @@ Butterfly 1.9 consolide automatiquement l'historique et les réglages d'une anci
 
 Le raccourci « texte sélectionné » saute la loupe et l'OCR : il lit directement la sélection de l'app active (via l'API Accessibilité, avec repli sur une copie silencieuse qui restaure ton presse-papiers). Il demande une permission supplémentaire au premier usage : Réglages Système → Confidentialité et sécurité → **Accessibilité** → activer Butterfly.
 
-### Réglages
+### Réglages sobres et cohérents
 
 Clic droit sur l'icône papillon → **Réglages…** :
 
@@ -116,6 +134,13 @@ Clic droit sur l'icône papillon → **Réglages…** :
 <p align="center">
   <img src="assets/screenshot-settings.png" width="400" alt="Réglages des raccourcis" />
 </p>
+
+## Si quelque chose ne fonctionne pas
+
+- **La loupe ne voit rien** : ouvre Réglages → Autorisations et vérifie Enregistrement de l'écran. macOS peut demander de quitter et rouvrir Butterfly.
+- **Le raccourci de sélection ne trouve aucun texte** : autorise Butterfly dans Accessibilité, puis réessaie dans l'app source.
+- **Aucun moteur IA disponible** : active Apple Intelligence ou installe Ollama avec la commande indiquée plus haut.
+- **Un raccourci entre en conflit** : ouvre Réglages, clique la combinaison concernée et tape un nouveau raccourci avec `⌘`, `⌥` ou `⌃`.
 
 ## Vie privée et sécurité
 
@@ -146,7 +171,7 @@ swift scripts/make_icon.swift              # regénérer l'icône papillon
 swift scripts/make_dmg_background.swift    # regénérer le fond du DMG
 ```
 
-Architecture : `HotKeyManager` (hotkey Carbon, zéro permission) → `ScreenCaptureService` (ScreenCaptureKit, écran gelé) → `OverlayView` (loupe SwiftUI) **ou** `SelectedTextService` (API Accessibilité, raccourci sélection) → `OCRService` (Vision) → `TextEngine` (Apple Foundation Models en priorité, Ollama en secours, streaming et modes corriger/traduire) → panneaux SwiftUI en `glassEffect` (`ResultView` redimensionnable, `WordBubble` pour les synonymes).
+Architecture : `HotKeyManager` (hotkey Carbon, zéro permission) → `ScreenCaptureService` (ScreenCaptureKit, écran gelé) → `OverlayView` (loupe SwiftUI) **ou** `SelectedTextService` (API Accessibilité, raccourci sélection) → `OCRService` (Vision) → `TextEngine` (Apple Foundation Models en priorité, Ollama en secours, streaming et modes corriger/traduire) → panneaux SwiftUI pilotés par `ButterflyTokens` (`ResultView` redimensionnable, `WordBubble` pour les synonymes).
 
 ## Licence
 

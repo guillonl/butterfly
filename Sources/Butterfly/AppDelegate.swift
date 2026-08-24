@@ -705,23 +705,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("This is a sentense with mistaks", "This is a sentence with mistakes", "Ceci est une phrase avec des fautes", "fr"),
             ("On se voit demain matin a la gare", "On se voit demain matin à la gare", "See you tomorrow morning at the station", "en"),
         ]
-        for sample in samples {
-            HistoryStore.shared.add(HistoryEntry(
+        let previewStore = HistoryStore(previewEntries: samples.enumerated().map { index, sample in
+            HistoryEntry(
                 id: UUID(),
-                date: Date(),
+                date: Date().addingTimeInterval(TimeInterval(-index * 300)),
                 original: sample.0,
                 corrected: sample.1,
                 translated: sample.2,
                 targetLanguage: sample.3
-            ))
-        }
+            )
+        })
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             guard let self, let button = self.statusItem.button else {
                 FileHandle.standardError.write(Data("[debug] demo-history: no status button\n".utf8))
                 return
             }
             FileHandle.standardError.write(Data("[debug] demo-history: showing panel\n".utf8))
-            self.historyPanel.show(relativeTo: button)
+            self.historyPanel.show(relativeTo: button, store: previewStore)
         }
     }
 

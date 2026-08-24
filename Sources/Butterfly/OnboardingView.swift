@@ -40,8 +40,8 @@ struct OnboardingView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider().opacity(0.4).padding(.horizontal, 28)
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 9) {
+                ButterflySectionTitle(text: L10n.t("onboard.section.setup"))
                 engineStep
                 permissionStep(
                     title: L10n.t("onboard.screen.title"),
@@ -58,14 +58,13 @@ struct OnboardingView: View {
                     action: { Onboarding.openAccessibilitySettings() }
                 )
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 18)
+            .padding(.horizontal, ButterflyTokens.panelPadding)
+            .padding(.top, 4)
             footer
         }
         .frame(width: cardWidth, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 28))
-        .clipShape(RoundedRectangle(cornerRadius: 28))
-        .scaleEffect(appeared ? 1 : 0.95, anchor: .center)
+        .butterflyPanel()
+        .scaleEffect(appeared ? 1 : 0.98, anchor: .center)
         .opacity(appeared ? 1 : 0)
         .onAppear {
             model.refresh()
@@ -82,22 +81,23 @@ struct OnboardingView: View {
     // MARK: - En-tête
 
     private var header: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             ButterflyShape()
                 .fill(.primary)
-                .frame(width: 34, height: 34)
+                .frame(width: 26, height: 26)
             VStack(alignment: .leading, spacing: 3) {
                 Text(L10n.t("onboard.title"))
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(ButterflyTokens.ink)
                 Text(L10n.t("onboard.subtitle"))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(ButterflyTokens.dim)
             }
             Spacer()
         }
-        .padding(.horizontal, 28)
-        .padding(.top, 24)
-        .padding(.bottom, 18)
+        .padding(.horizontal, 18)
+        .padding(.top, 16)
+        .padding(.bottom, 14)
     }
 
     // MARK: - Étape moteur IA
@@ -162,37 +162,38 @@ struct OnboardingView: View {
         button: (String, () -> Void)?,
         showSpinner: Bool = false
     ) -> some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .center, spacing: 11) {
             ZStack {
-                Circle()
-                    .fill(granted ? AnyShapeStyle(.green.opacity(0.9)) : AnyShapeStyle(.quaternary.opacity(0.7)))
-                    .frame(width: 30, height: 30)
+                RoundedRectangle(cornerRadius: ButterflyTokens.controlRadius, style: .continuous)
+                    .fill(granted ? ButterflyTokens.good : ButterflyTokens.hairline)
+                    .frame(width: 28, height: 28)
                 if showSpinner {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: granted ? "checkmark" : systemImage)
-                        .font(.system(size: granted ? 13 : 12, weight: .semibold))
-                        .foregroundStyle(granted ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(granted ? AnyShapeStyle(.white) : AnyShapeStyle(ButterflyTokens.dim))
                 }
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(ButterflyTokens.ink)
                 Text(description)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(ButterflyTokens.dim)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
             if let button {
                 Button(button.0, action: button.1)
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.capsule)
                     .controlSize(.small)
                     .fixedSize()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(11)
+        .butterflyCard()
     }
 
     // MARK: - Pied
@@ -202,16 +203,14 @@ struct OnboardingView: View {
             Spacer()
             Button(action: onClose) {
                 Text(model.engineReady ? L10n.t("onboard.start") : L10n.t("onboard.later"))
-                    .font(.system(size: 13, weight: .semibold))
-                    .padding(.horizontal, 8)
+                    .font(.system(size: 12, weight: .semibold))
             }
-            .buttonStyle(.glassProminent)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
         }
-        .padding(.horizontal, 28)
-        .padding(.top, 20)
-        .padding(.bottom, 22)
+        .padding(.horizontal, 18)
+        .padding(.top, 14)
+        .padding(.bottom, 18)
     }
 }
 
