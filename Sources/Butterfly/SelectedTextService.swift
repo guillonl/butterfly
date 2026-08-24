@@ -40,9 +40,10 @@ enum SelectedTextService {
     }
 
     /// Affiche la demande système si la permission manque.
-    static func requestPermission() {
+    @discardableResult
+    static func requestPermission() -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        AXIsProcessTrustedWithOptions(options)
+        return AXIsProcessTrustedWithOptions(options)
     }
 
     static func fetchSelectedText() async -> String? {

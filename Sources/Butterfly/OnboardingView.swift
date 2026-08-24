@@ -48,14 +48,14 @@ struct OnboardingView: View {
                     description: L10n.t("onboard.screen.desc"),
                     granted: model.screenGranted,
                     systemImage: "rectangle.dashed.badge.record",
-                    action: { Onboarding.openScreenRecordingSettings() }
+                    action: { Onboarding.requestScreenRecordingPermission() }
                 )
                 permissionStep(
                     title: L10n.t("onboard.ax.title"),
                     description: L10n.t("onboard.ax.desc"),
                     granted: model.accessibilityGranted,
                     systemImage: "accessibility",
-                    action: { Onboarding.openAccessibilitySettings() }
+                    action: { Onboarding.requestAccessibilityPermission() }
                 )
             }
             .padding(.horizontal, ButterflyTokens.panelPadding)
@@ -216,7 +216,26 @@ struct OnboardingView: View {
 
 /// Helpers d'ouverture des Réglages Système (avec repli si l'URL d'un volet
 /// précis n'est pas reconnue par la version de macOS).
+@MainActor
 enum Onboarding {
+    static func requestScreenRecordingPermission() {
+        guard !ScreenCaptureService.hasPermission else { return }
+        if !ScreenCaptureService.requestPermission() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                openScreenRecordingSettings()
+            }
+        }
+    }
+
+    static func requestAccessibilityPermission() {
+        guard !SelectedTextService.hasPermission else { return }
+        if !SelectedTextService.requestPermission() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                openAccessibilitySettings()
+            }
+        }
+    }
+
     static func openScreenRecordingSettings() {
         open("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
     }

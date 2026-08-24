@@ -5,12 +5,17 @@ MODE="${1:-run}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Butterfly"
 BUILD="/private/tmp/butterfly-codex-build"
-APP="$BUILD/Butterfly.app"
+APP="$BUILD/Butterfly Dev.app"
 BIN="$APP/Contents/MacOS/Butterfly"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 cd "$ROOT"
-env BUTTERFLY_BUILD_DIR="$BUILD" bash scripts/build.sh
+env \
+  BUTTERFLY_BUILD_DIR="$BUILD" \
+  BUTTERFLY_APP_NAME="Butterfly Dev" \
+  BUTTERFLY_BUNDLE_ID="com.leoguillon.butterfly.dev" \
+  BUTTERFLY_SIGN_IDENTITY="Butterfly Dev" \
+  bash scripts/build.sh
 
 open_app() { /usr/bin/open -n "$APP"; }
 

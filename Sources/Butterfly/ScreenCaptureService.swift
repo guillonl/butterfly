@@ -35,7 +35,8 @@ enum ScreenCaptureService {
         CGPreflightScreenCaptureAccess()
     }
 
-    static func requestPermission() {
+    @discardableResult
+    static func requestPermission() -> Bool {
         CGRequestScreenCaptureAccess()
     }
 
