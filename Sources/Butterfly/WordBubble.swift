@@ -62,20 +62,16 @@ struct WordBubbleView: View {
     @State private var appeared = false
     @State private var copiedIndex: Int?
 
-    private let bubbleWidth: CGFloat = 280
+    private let bubbleWidth: CGFloat = 290
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider()
-                .opacity(0.4)
-                .padding(.horizontal, 16)
             content
         }
         .frame(width: bubbleWidth, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .scaleEffect(appeared ? 1 : 0.92, anchor: .top)
+        .butterflyPanel()
+        .scaleEffect(appeared ? 1 : 0.98, anchor: .top)
         .opacity(appeared ? 1 : 0)
         .onAppear {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { appeared = true }
@@ -85,11 +81,9 @@ struct WordBubbleView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            ButterflyShape()
-                .fill(.primary)
-                .frame(width: 16, height: 16)
             Text(model.word)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 13.5, weight: .semibold))
+                .foregroundStyle(ButterflyTokens.ink)
                 .lineLimit(1)
             Spacer()
             Button {
@@ -98,19 +92,17 @@ struct WordBubbleView: View {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 9, weight: .semibold))
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
+            .buttonStyle(.borderless)
             .disabled(model.phase == .loading)
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
+            .buttonStyle(.borderless)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 13)
         .padding(.top, 12)
-        .padding(.bottom, 10)
+        .padding(.bottom, 9)
     }
 
     @ViewBuilder
@@ -121,19 +113,19 @@ struct WordBubbleView: View {
                 ProgressView().controlSize(.small)
                 Text(L10n.t("bubble.loading"))
                     .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(ButterflyTokens.dim)
             }
-            .padding(16)
+            .padding(13)
         case .failure(let message):
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 10))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(ButterflyTokens.warn)
                 Text(message)
                     .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(ButterflyTokens.dim)
             }
-            .padding(16)
+            .padding(13)
         case .value(let alternatives):
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(alternatives.enumerated()), id: \.offset) { index, alternative in
@@ -154,7 +146,8 @@ struct WordBubbleView: View {
                     } label: {
                         HStack(spacing: 8) {
                             Text(alternative)
-                                .font(.system(size: 13))
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundStyle(ButterflyTokens.ink)
                                 .lineLimit(2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Image(systemName: pickIcon(at: index))
@@ -162,19 +155,22 @@ struct WordBubbleView: View {
                                 .foregroundStyle(copiedIndex == index ? AnyShapeStyle(.green) : AnyShapeStyle(.tertiary))
                         }
                         .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .contentShape(RoundedRectangle(cornerRadius: 10))
+                        .padding(.vertical, 8)
+                        .contentShape(RoundedRectangle(cornerRadius: ButterflyTokens.controlRadius))
                     }
                     .buttonStyle(.plain)
-                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+                    .background(
+                        ButterflyTokens.cardFill,
+                        in: RoundedRectangle(cornerRadius: ButterflyTokens.controlRadius, style: .continuous)
+                    )
                 }
                 Text(L10n.t(onPick != nil ? "bubble.hint.replace" : "bubble.hint"))
                     .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(ButterflyTokens.dim)
                     .padding(.top, 6)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 11)
+            .padding(.bottom, 11)
         }
     }
 
@@ -219,7 +215,7 @@ final class WordBubbleController {
         let model = WordBubbleModel(word: word, sourceLanguage: sourceLanguage)
         self.model = model
 
-        let width: CGFloat = 280
+        let width: CGFloat = 290
         let estimated: CGFloat = 200
 
         let sf = screen.frame
@@ -285,13 +281,15 @@ final class WordBubbleController {
         resizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: panel, queue: .main
         ) { [weak self] _ in
-            guard let self, let panel = self.panel else { return }
-            if self.anchorMode == .above {
-                panel.setFrameOrigin(self.bottomLeft)
-            } else {
-                panel.setFrameTopLeftPoint(self.topLeft)
+            Task { @MainActor [weak self] in
+                guard let self, let panel = self.panel else { return }
+                if self.anchorMode == .above {
+                    panel.setFrameOrigin(self.bottomLeft)
+                } else {
+                    panel.setFrameTopLeftPoint(self.topLeft)
+                }
+                panel.invalidateShadow()
             }
-            panel.invalidateShadow()
         }
 
         if let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in

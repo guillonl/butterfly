@@ -1,10 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// Panneau Réglages en Liquid Glass : personnalisation des deux raccourcis.
+/// Réglages compacts, organisés avec la même hiérarchie de cartes que Jauge.
 struct SettingsView: View {
-    /// Tente d'appliquer le nouveau raccourci ; retourne false si refusé.
     let onShortcutChange: (HotKeyAction, Shortcut) -> Bool
+    let onOpenGuide: () -> Void
     let onClose: () -> Void
 
     @State private var shortcuts: [HotKeyAction: Shortcut] = [
@@ -16,80 +16,29 @@ struct SettingsView: View {
     @State private var keyMonitor: Any?
     @State private var appeared = false
     @State private var mode: ProcessingMode = .current
+    @State private var launchAtLogin = LoginItem.isEnabled
+    @State private var systemError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider()
-                .opacity(0.4)
-                .padding(.horizontal, 20)
-            VStack(alignment: .leading, spacing: 16) {
-                shortcutRow(
-                    action: .capture,
-                    icon: "plus.magnifyingglass",
-                    title: L10n.t("settings.capture"),
-                    hint: L10n.t("settings.captureHint")
-                )
-                shortcutRow(
-                    action: .selection,
-                    icon: "text.cursor",
-                    title: L10n.t("settings.selection"),
-                    hint: L10n.t("settings.selectionHint")
-                )
-                Divider().opacity(0.3)
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "wand.and.stars")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 24)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L10n.t("settings.mode"))
-                                .font(.system(size: 13, weight: .medium))
-                            Text(L10n.t("settings.modeHint"))
-                                .font(.system(size: 11))
-                                .foregroundStyle(.tertiary)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    Picker("", selection: $mode) {
-                        ForEach(ProcessingMode.allCases, id: \.self) { option in
-                            Text(option.label).tag(option)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .padding(.leading, 36)
-                    .onChange(of: mode) { _, newValue in
-                        ProcessingMode.save(newValue)
-                    }
+            ScrollView {
+                VStack(alignment: .leading, spacing: ButterflyTokens.sectionSpacing) {
+                    shortcutsSection
+                    actionsSection
+                    generalSection
+                    permissionsSection
                 }
-                if let errorMessage {
-                    HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.orange)
-                        Text(errorMessage)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Text(L10n.t("settings.note"))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                .padding(ButterflyTokens.panelPadding)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 20)
         }
-        .frame(width: 400, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 24))
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        .scaleEffect(appeared ? 1 : 0.96, anchor: .top)
+        .frame(width: 460, height: 520)
+        .butterflyPanel()
+        .scaleEffect(appeared ? 1 : 0.98, anchor: .top)
         .opacity(appeared ? 1 : 0)
         .onAppear {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.84)) { appeared = true }
+            launchAtLogin = LoginItem.isEnabled
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.88)) { appeared = true }
             installMonitor()
         }
         .onDisappear {
@@ -99,50 +48,208 @@ struct SettingsView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            ButterflyShape()
-                .fill(.primary)
-                .frame(width: 20, height: 20)
-            Text(L10n.t("settings.title"))
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(L10n.t("settings.title"))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(ButterflyTokens.ink)
+                Text(L10n.t("settings.subtitle"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(ButterflyTokens.dim)
+            }
             Spacer()
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 9.5, weight: .semibold))
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
+            .buttonStyle(.borderless)
+            .accessibilityLabel(L10n.t("panel.close"))
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 18)
         .padding(.top, 16)
-        .padding(.bottom, 12)
+        .padding(.bottom, 14)
+    }
+
+    private var shortcutsSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ButterflySectionTitle(text: L10n.t("settings.section.shortcuts"))
+            VStack(alignment: .leading, spacing: 0) {
+                shortcutRow(
+                    action: .capture,
+                    icon: "plus.magnifyingglass",
+                    title: L10n.t("settings.capture"),
+                    hint: L10n.t("settings.captureHint")
+                )
+                Divider().overlay(ButterflyTokens.hairline)
+                shortcutRow(
+                    action: .selection,
+                    icon: "text.cursor",
+                    title: L10n.t("settings.selection"),
+                    hint: L10n.t("settings.selectionHint")
+                )
+                Text(L10n.t("settings.note"))
+                    .font(.system(size: 10))
+                    .foregroundStyle(ButterflyTokens.dim)
+                    .padding(.top, 8)
+            }
+            .padding(11)
+            .butterflyCard()
+
+            if let errorMessage {
+                problemLabel(errorMessage)
+            }
+        }
+    }
+
+    private var actionsSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ButterflySectionTitle(text: L10n.t("settings.mode"))
+            VStack(alignment: .leading, spacing: 10) {
+                rowLabel(
+                    icon: "wand.and.stars",
+                    title: L10n.t("settings.modeTitle"),
+                    hint: L10n.t("settings.modeHint")
+                )
+                Picker("", selection: $mode) {
+                    ForEach(ProcessingMode.allCases, id: \.self) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityLabel(L10n.t("settings.mode"))
+                .onChange(of: mode) { _, newValue in ProcessingMode.save(newValue) }
+            }
+            .padding(11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .butterflyCard()
+        }
+    }
+
+    private var generalSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ButterflySectionTitle(text: L10n.t("settings.section.general"))
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 12) {
+                    rowLabel(
+                        icon: "power",
+                        title: L10n.t("settings.login"),
+                        hint: L10n.t("settings.loginHint")
+                    )
+                    Spacer(minLength: 8)
+                    Toggle("", isOn: $launchAtLogin)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .accessibilityLabel(L10n.t("settings.login"))
+                        .onChange(of: launchAtLogin) { _, enabled in updateLoginItem(enabled) }
+                }
+                if let systemError { problemLabel(systemError) }
+            }
+            .padding(11)
+            .butterflyCard()
+        }
+    }
+
+    private var permissionsSection: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            ButterflySectionTitle(text: L10n.t("settings.section.permissions"))
+            VStack(alignment: .leading, spacing: 0) {
+                permissionRow(
+                    title: L10n.t("onboard.screen.title"),
+                    granted: ScreenCaptureService.hasPermission,
+                    icon: "rectangle.dashed.badge.record"
+                )
+                Divider().overlay(ButterflyTokens.hairline)
+                permissionRow(
+                    title: L10n.t("onboard.ax.title"),
+                    granted: SelectedTextService.hasPermission,
+                    icon: "accessibility"
+                )
+                Button(L10n.t("settings.permissions"), action: onOpenGuide)
+                    .font(.system(size: 11, weight: .medium))
+                    .controlSize(.small)
+                    .padding(.top, 9)
+            }
+            .padding(11)
+            .butterflyCard()
+        }
     }
 
     private func shortcutRow(action: HotKeyAction, icon: String, title: String, hint: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .medium))
-                Text(hint)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-            }
-            Spacer(minLength: 12)
+        HStack(spacing: 11) {
+            rowLabel(icon: icon, title: title, hint: hint)
+            Spacer(minLength: 10)
             Button {
                 errorMessage = nil
                 recording = recording == action ? nil : action
             } label: {
                 Text(recording == action ? L10n.t("settings.recording") : (shortcuts[action]?.display ?? "?"))
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(recording == action ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-                    .frame(minWidth: 96)
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(recording == action ? ButterflyTokens.dim : ButterflyTokens.ink)
+                    .frame(minWidth: 88)
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.capsule)
+            .controlSize(.small)
+            .accessibilityLabel(title)
+            .accessibilityHint(hint)
+        }
+        .padding(.vertical, 7)
+    }
+
+    private func rowLabel(icon: String, title: String, hint: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(ButterflyTokens.dim)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(ButterflyTokens.ink)
+                Text(hint)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(ButterflyTokens.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func permissionRow(title: String, granted: Bool, icon: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(ButterflyTokens.dim)
+                .frame(width: 22)
+            Text(title)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(ButterflyTokens.ink)
+            Spacer()
+            Label(
+                granted ? L10n.t("settings.allowed") : L10n.t("settings.required"),
+                systemImage: granted ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
+            )
+            .font(.system(size: 10.5, weight: .medium))
+            .foregroundStyle(granted ? ButterflyTokens.good : ButterflyTokens.warn)
+            .accessibilityValue(granted ? L10n.t("settings.allowed") : L10n.t("settings.required"))
+        }
+        .padding(.vertical, 8)
+    }
+
+    private func problemLabel(_ message: String) -> some View {
+        Label(message, systemImage: "exclamationmark.triangle.fill")
+            .font(.system(size: 10.5))
+            .foregroundStyle(ButterflyTokens.warn)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func updateLoginItem(_ enabled: Bool) {
+        do {
+            try LoginItem.setEnabled(enabled)
+            systemError = nil
+        } catch {
+            launchAtLogin = LoginItem.isEnabled
+            systemError = L10n.t("settings.loginError")
         }
     }
 
@@ -150,7 +257,6 @@ struct SettingsView: View {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
             if let action = recording {
-                // Échap seul : annule l'enregistrement
                 if event.keyCode == 53, modifiers.isEmpty {
                     recording = nil
                     errorMessage = nil
@@ -184,17 +290,17 @@ struct SettingsView: View {
     }
 }
 
-/// Contrôleur du panneau Réglages, centré sur l'écran de la souris.
 @MainActor
 final class SettingsPanelController {
     private var panel: ResultPanel?
     var onShortcutChange: ((HotKeyAction, Shortcut) -> Bool)?
+    var onOpenGuide: (() -> Void)?
 
     func show() {
         close()
         let screen = ScreenCaptureService.screenWithMouse()
-        let width: CGFloat = 400
-        let height: CGFloat = 240
+        let width: CGFloat = 460
+        let height: CGFloat = 520
 
         let panel = ResultPanel(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -216,18 +322,17 @@ final class SettingsPanelController {
                 onShortcutChange: { [weak self] action, shortcut in
                     self?.onShortcutChange?(action, shortcut) ?? false
                 },
+                onOpenGuide: { [weak self] in self?.onOpenGuide?() },
                 onClose: { [weak self] in self?.close() }
             )
         )
         panel.contentViewController = host
-        // Taille réelle du contenu SwiftUI (la hauteur varie avec les rangées)
-        let fitting = host.view.fittingSize
-        panel.setContentSize(NSSize(width: width, height: max(height, fitting.height)))
+        panel.setContentSize(NSSize(width: width, height: height))
 
         let visible = screen.visibleFrame
         panel.setFrameTopLeftPoint(NSPoint(
             x: visible.midX - width / 2,
-            y: visible.midY + height / 2 + 80
+            y: visible.midY + height / 2
         ))
 
         self.panel = panel

@@ -1,4 +1,4 @@
-// swift-tools-version:6.0
+// swift-tools-version:6.2
 import PackageDescription
 
 let package = Package(
@@ -8,7 +8,11 @@ let package = Package(
         .executableTarget(
             name: "Butterfly",
             path: "Sources/Butterfly",
-            swiftSettings: [.swiftLanguageMode(.v5)]
-        )
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "ButterflyTests",
+            dependencies: ["Butterfly"]
+        ),
     ]
 )

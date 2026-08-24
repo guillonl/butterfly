@@ -46,24 +46,24 @@ struct ButterflyShape: Shape {
 
 enum ButterflyArt {
 
-    /// Icône template 20×20 pour la barre de menus (s'adapte clair/sombre).
-    /// Le glyphe papillon n'occupe que ~72 % de sa bounding box : on
-    /// surdimensionne le rect de dessin pour atteindre la taille optique
-    /// des icônes système voisines.
+    /// Même traitement que Bob : ICNS de l'app sans mode template. Butterfly
+    /// occupe davantage son canevas, donc 17 pt donne la même hauteur optique
+    /// que l'ICNS de Bob affiché à 18 pt.
     static func statusItemImage() -> NSImage {
-        let size = NSSize(width: 20, height: 20)
+        let size = NSSize(width: 17, height: 17)
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: url) {
+            image.size = size
+            image.isTemplate = false
+            return image
+        }
+
+        // Repli sûr pour `swift run`, où le bundle SPM n'embarque pas les
+        // ressources assemblées par scripts/build.sh.
         let image = NSImage(size: size, flipped: true) { rect in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
-            let overscan: CGFloat = 1.32
-            let side = rect.width * overscan
-            let drawRect = CGRect(
-                x: rect.midX - side / 2,
-                y: rect.minY - side * 0.085,
-                width: side,
-                height: side
-            )
-            let path = ButterflyShape().path(in: drawRect)
-            context.addPath(path.cgPath)
+            let drawRect = rect.insetBy(dx: 1, dy: 1)
+            context.addPath(ButterflyShape().path(in: drawRect).cgPath)
             context.setFillColor(NSColor.black.cgColor)
             context.fillPath()
             return true

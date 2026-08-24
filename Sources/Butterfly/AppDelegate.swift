@@ -14,9 +14,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let historyPanel = HistoryPanelController()
     private let settingsPanel = SettingsPanelController()
     private let wordBubble = WordBubbleController()
+    private let onboardingPanel = OnboardingPanelController()
     private var capturing = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        LegacyPreferencesMigrator.migrateIfNeeded()
         setupStatusItem()
 
         HotKeyManager.shared.handlers[.capture] = { [weak self] in self?.startCapture() }
@@ -28,6 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ShortcutStore.save(shortcut, for: action)
             self?.updateMenuShortcuts()
             return true
+        }
+        settingsPanel.onOpenGuide = { [weak self] in
+            self?.settingsPanel.close()
+            self?.onboardingPanel.show()
         }
 
         // Cliquer un mot dans le panneau résultat → bulle au-dessus du mot ;
@@ -49,6 +55,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--test-resize") {
             runResizeTests()
         }
+        if CommandLine.arguments.contains("--test-cleaning") {
+            runCleaningTests()
+        }
         if CommandLine.arguments.contains("--demo") {
             runDemo()
         }
@@ -63,6 +72,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--demo-settings") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 self?.settingsPanel.show()
+            }
+        }
+        if CommandLine.arguments.contains("--demo-onboarding") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.onboardingPanel.show()
+            }
+        }
+        // Premier lancement réel (hors modes test/démo CLI) : guide de démarrage.
+        if !CommandLine.arguments.contains(where: { $0.hasPrefix("--") }) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.onboardingPanel.showIfFirstLaunch()
             }
         }
         if CommandLine.arguments.contains("--demo-bubble") {
@@ -84,7 +104,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = ButterflyArt.statusItemImage()
-        statusItem.button?.toolTip = "Butterfly"
+        statusItem.button?.imageScaling = .scaleProportionallyDown
+        // Tooltip localisé par le nom du bundle.
+        statusItem.button?.toolTip = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Butterfly"
         // Clic gauche → panneau historique ; clic droit → menu d'actions.
         statusItem.button?.action = #selector(statusItemClicked)
         statusItem.button?.target = self
@@ -130,6 +152,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(engineItem)
         self.engineMenu = engineMenu
         menu.addItem(.separator())
+
+        let onboardingItem = NSMenuItem(title: L10n.t("menu.onboarding"), action: #selector(showOnboarding), keyEquivalent: "")
+        onboardingItem.target = self
+        menu.addItem(onboardingItem)
 
         let settingsItem = NSMenuItem(title: L10n.t("menu.settings"), action: #selector(showSettings), keyEquivalent: "")
         settingsItem.target = self
@@ -198,6 +224,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsPanel.show()
     }
 
+    @objc private func showOnboarding() {
+        historyPanel.close()
+        onboardingPanel.show()
+    }
+
     @objc private func selectEngine(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let pref = EnginePreference(rawValue: raw) else { return }
@@ -226,7 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Précharge le modèle pendant que l'utilisateur fait sa sélection :
         // au moment de l'OCR, le moteur est déjà chaud.
-        Task.detached(priority: .utility) {
+        Task(priority: .utility) {
             await TextEngine.shared.warmup()
         }
 
@@ -329,7 +360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        Task.detached(priority: .utility) {
+        Task(priority: .utility) {
             await TextEngine.shared.warmup()
         }
 
@@ -422,8 +453,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: L10n.t("alert.ax.open"))
         alert.addButton(withTitle: L10n.t("alert.ax.later"))
         if alert.runModal() == .alertFirstButtonReturn {
-            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-            NSWorkspace.shared.open(url)
+            Onboarding.openAccessibilitySettings()
         }
     }
 
@@ -436,8 +466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.addButton(withTitle: L10n.t("alert.screen.open"))
         alert.addButton(withTitle: L10n.t("alert.screen.later"))
         if alert.runModal() == .alertFirstButtonReturn {
-            let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!
-            NSWorkspace.shared.open(url)
+            Onboarding.openScreenRecordingSettings()
         }
     }
 
@@ -618,6 +647,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         exit(failures == 0 ? 0 : 1)
     }
 
+    /// `--test-cleaning` : nettoyage des sorties moteur (guillemets d'emballage,
+    /// notamment courbes d'Apple Intelligence) et découpe des alternatives
+    /// (une par ligne ou séparées par des virgules). Sans moteur ni UI.
+    private func runCleaningTests() {
+        var failures = 0
+        func check(_ name: String, _ got: String, _ expected: String) {
+            if got == expected { print("[test-cleaning] \(name) OK") }
+            else { print("[test-cleaning] \(name) FAIL: attendu « \(expected) », obtenu « \(got) »"); failures += 1 }
+        }
+        // cleaned() : guillemets d'emballage de tous styles.
+        check("droits", TextEngine.cleaned("\"bonjour\""), "bonjour")
+        check("triples", TextEngine.cleaned("\"\"\"bonjour\"\"\""), "bonjour")
+        check("courbes doubles", TextEngine.cleaned("\u{201C}bonjour\u{201D}"), "bonjour")
+        check("apostrophes courbes", TextEngine.cleaned("\u{2018}bonjour\u{2019}"), "bonjour")
+        check("chevrons français", TextEngine.cleaned("\u{00AB} bonjour \u{00BB}"), "bonjour")
+        check("imbriqués", TextEngine.cleaned("\u{201C}\u{00AB} salut \u{00BB}\u{201D}"), "salut")
+        check("déjà propre", TextEngine.cleaned("rien à enlever"), "rien à enlever")
+        check("think", TextEngine.cleaned("<think>blabla</think>réponse"), "réponse")
+        check("apostrophe interne préservée", TextEngine.cleaned("c'est l'application"), "c'est l'application")
+
+        // parseAlternatives() : formats Ollama (lignes) et Apple (virgules).
+        func eq(_ name: String, _ got: [String], _ expected: [String]) {
+            if got == expected { print("[test-cleaning] \(name) OK") }
+            else { print("[test-cleaning] \(name) FAIL: attendu \(expected), obtenu \(got)"); failures += 1 }
+        }
+        eq("alt lignes", TextEngine.parseAlternatives("essayer\ntester\nvérifier", excluding: "x"), ["essayer", "tester", "vérifier"])
+        eq("alt virgules", TextEngine.parseAlternatives("essayer, tester, vérifier", excluding: "x"), ["essayer", "tester", "vérifier"])
+        eq("alt numérotées", TextEngine.parseAlternatives("1. essayer\n2. tester", excluding: "x"), ["essayer", "tester"])
+        eq("alt guillemets", TextEngine.parseAlternatives("\u{201C}essayer\u{201D}, \u{201C}tester\u{201D}", excluding: "x"), ["essayer", "tester"])
+        eq("alt exclut le mot", TextEngine.parseAlternatives("ajuste, modifie, change", excluding: "ajuste"), ["modifie", "change"])
+        eq("alt dédoublonne", TextEngine.parseAlternatives("change, change, modifie", excluding: "x"), ["change", "modifie"])
+        eq("alt expressions", TextEngine.parseAlternatives("plus court\ntout à fait", excluding: "x"), ["plus court", "tout à fait"])
+
+        // stripPreamble : préambules conversationnels d'Apple Intelligence.
+        check("préambule EN", TextEngine.stripPreamble("Sure, here's the revised version: hello"), "hello")
+        check("préambule FR", TextEngine.stripPreamble("Voici la traduction : bonjour"), "bonjour")
+        check("préambule absent", TextEngine.stripPreamble("hello world"), "hello world")
+        check("faux préambule (: lointain)", TextEngine.stripPreamble("Here is a very long sentence that legitimately uses a colon much later: indeed"), "Here is a very long sentence that legitimately uses a colon much later: indeed")
+        // firstVariant : liste numérotée → première seulement.
+        check("variante liste", TextEngine.firstVariant("1. abc\n2. def\n3. ghi"), "abc")
+        check("variante unique", TextEngine.firstVariant("1. seule"), "seule")
+        check("variante sans liste", TextEngine.firstVariant("texte normal"), "texte normal")
+        // cleanedResult : le cas réel (préambule + liste de variantes guillemetées).
+        check("résultat unique", TextEngine.cleanedResult("1. \"Then test.\"\n2. \"Then test.\"", singleResult: true), "Then test.")
+        eq("résultat liste préservée", TextEngine.parseAlternatives(TextEngine.cleanedResult("touche\ncommande", singleResult: false), excluding: "x"), ["touche", "commande"])
+
+        print(failures == 0 ? "[test-cleaning] OK" : "[test-cleaning] \(failures) ÉCHEC(S)")
+        exit(failures == 0 ? 0 : 1)
+    }
+
     /// `--demo-history` : remplit l'historique de données fictives et ouvre
     /// le panneau sous l'icône menu bar (vérification visuelle sans clic).
     private func runHistoryDemo() {
@@ -626,23 +705,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("This is a sentense with mistaks", "This is a sentence with mistakes", "Ceci est une phrase avec des fautes", "fr"),
             ("On se voit demain matin a la gare", "On se voit demain matin à la gare", "See you tomorrow morning at the station", "en"),
         ]
-        for sample in samples {
-            HistoryStore.shared.add(HistoryEntry(
+        let previewStore = HistoryStore(previewEntries: samples.enumerated().map { index, sample in
+            HistoryEntry(
                 id: UUID(),
-                date: Date(),
+                date: Date().addingTimeInterval(TimeInterval(-index * 300)),
                 original: sample.0,
                 corrected: sample.1,
                 translated: sample.2,
                 targetLanguage: sample.3
-            ))
-        }
+            )
+        })
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
             guard let self, let button = self.statusItem.button else {
                 FileHandle.standardError.write(Data("[debug] demo-history: no status button\n".utf8))
                 return
             }
             FileHandle.standardError.write(Data("[debug] demo-history: showing panel\n".utf8))
-            self.historyPanel.show(relativeTo: button)
+            self.historyPanel.show(relativeTo: button, store: previewStore)
         }
     }
 

@@ -408,7 +408,9 @@ final class ResultPanelController {
 
         // Taille mémorisée d'un redimensionnement manuel précédent : le
         // panneau démarre alors en mode « fluide » (la fenêtre pilote la vue).
-        let savedSize = PanelSizeStore.saved
+        // Le mode démo sert aux captures produit : il doit montrer la taille
+        // canonique, indépendamment d'un resize personnel mémorisé sur le Mac.
+        let savedSize = CommandLine.arguments.contains("--demo") ? nil : PanelSizeStore.saved
         let initialSize = savedSize ?? NSSize(width: panelWidth, height: estimatedHeight)
 
         // Overlay (origine haut-gauche) → coordonnées globales AppKit (bas-gauche)
@@ -493,24 +495,28 @@ final class ResultPanelController {
         resizeObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: panel, queue: .main
         ) { [weak self] _ in
-            guard let self, let panel = self.panel else { return }
-            // Pendant un redimensionnement manuel, ne pas lutter avec l'utilisateur.
-            guard !self.userResizing else { return }
-            self.programmaticMove = true
-            panel.setFrameTopLeftPoint(self.topLeft)
-            self.clampIntoScreen(panel)
-            self.programmaticMove = false
-            // L'ombre native est un snapshot : la rafraîchir à chaque
-            // changement de taille (stream, animations) évite les contours
-            // fantômes de l'ancienne forme.
-            panel.invalidateShadow()
+            Task { @MainActor [weak self] in
+                guard let self, let panel = self.panel else { return }
+                // Pendant un redimensionnement manuel, ne pas lutter avec l'utilisateur.
+                guard !self.userResizing else { return }
+                self.programmaticMove = true
+                panel.setFrameTopLeftPoint(self.topLeft)
+                self.clampIntoScreen(panel)
+                self.programmaticMove = false
+                // L'ombre native est un snapshot : la rafraîchir à chaque
+                // changement de taille (stream, animations) évite les contours
+                // fantômes de l'ancienne forme.
+                panel.invalidateShadow()
+            }
         }
         // Si Léo déplace le panneau à la main, on ré-ancre sur sa position.
         moveObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: panel, queue: .main
         ) { [weak self] _ in
-            guard let self, !self.programmaticMove, let panel = self.panel else { return }
-            self.topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
+            Task { @MainActor [weak self] in
+                guard let self, !self.programmaticMove, let panel = self.panel else { return }
+                self.topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
+            }
         }
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

@@ -5,6 +5,7 @@ import Carbon.HIToolbox
 /// Contrairement aux NSEvent global monitors, cette API ne demande
 /// aucune permission Accessibilité. Gère plusieurs raccourcis,
 /// ré-enregistrables à chaud (réglages).
+@MainActor
 final class HotKeyManager {
     static let shared = HotKeyManager()
 
@@ -16,12 +17,13 @@ final class HotKeyManager {
 
     /// Installe le handler d'événements puis enregistre les raccourcis stockés.
     func start() {
+        guard eventHandler == nil else { return }
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
             eventKind: UInt32(kEventHotKeyPressed)
         )
 
-        InstallEventHandler(
+        let handlerStatus = InstallEventHandler(
             GetApplicationEventTarget(),
             { _, event, userData -> OSStatus in
                 guard let userData, let event else { return noErr }
@@ -41,9 +43,16 @@ final class HotKeyManager {
             Unmanaged.passUnretained(self).toOpaque(),
             &eventHandler
         )
+        guard handlerStatus == noErr else {
+            NSLog("Butterfly: impossible d'installer le gestionnaire de raccourcis (status %d)", handlerStatus)
+            return
+        }
 
         for action in HotKeyAction.allCases {
-            apply(ShortcutStore.shortcut(for: action), for: action)
+            let shortcut = ShortcutStore.shortcut(for: action)
+            if !apply(shortcut, for: action) {
+                NSLog("Butterfly: raccourci %@ refusé pour l'action %u", shortcut.display, action.rawValue)
+            }
         }
     }
 
@@ -65,7 +74,10 @@ final class HotKeyManager {
             0,
             &ref
         )
-        guard status == noErr, let ref else { return false }
+        guard status == noErr, let ref else {
+            NSLog("Butterfly: RegisterEventHotKey a échoué (status %d, action %u)", status, action.rawValue)
+            return false
+        }
         hotKeyRefs[action] = ref
         return true
     }

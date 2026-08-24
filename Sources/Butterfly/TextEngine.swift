@@ -34,6 +34,7 @@ enum EngineError: LocalizedError {
 /// Double moteur 100 % local et gratuit :
 /// - Ollama + qwen3:4b (open source, Apache 2.0) en priorité
 /// - Apple Intelligence (FoundationModels) en secours
+@MainActor
 final class TextEngine {
     static let shared = TextEngine()
 
@@ -69,14 +70,52 @@ final class TextEngine {
             if appleAvailable { return .apple }
             return await ensureOllama() ? .ollama : nil
         case .auto:
-            if await ensureOllama() { return .ollama }
-            return appleAvailable ? .apple : nil
+            // Apple Intelligence d'abord : c'est l'IA EMBARQUÉE fournie par
+            // macOS (rien à installer, rien à télécharger). Ollama ne sert plus
+            // que de secours pour les Mac où Apple Intelligence n'est pas
+            // disponible mais où un serveur Ollama tourne déjà.
+            if appleAvailable { return .apple }
+            return await ensureOllama() ? .ollama : nil
         }
     }
 
     private var appleAvailable: Bool {
         if case .available = SystemLanguageModel.default.availability { return true }
         return false
+    }
+
+    /// Disponibilité d'Apple Intelligence avec la raison, pour l'onboarding :
+    /// on peut alors guider précisément (activer, patienter le téléchargement,
+    /// ou basculer sur Ollama si le Mac n'est pas éligible).
+    enum AppleStatus: Equatable {
+        case available
+        case notEnabled      // Apple Intelligence désactivé dans les Réglages
+        case modelNotReady   // modèle on-device en cours de téléchargement
+        case notEligible     // Mac non compatible Apple Intelligence
+        case unknown
+    }
+
+    var appleStatus: AppleStatus {
+        switch SystemLanguageModel.default.availability {
+        case .available:
+            return .available
+        case .unavailable(let reason):
+            switch reason {
+            case .appleIntelligenceNotEnabled: return .notEnabled
+            case .modelNotReady: return .modelNotReady
+            case .deviceNotEligible: return .notEligible
+            @unknown default: return .unknown
+            }
+        @unknown default:
+            return .unknown
+        }
+    }
+
+    /// Un moteur Ollama (binaire + modèle) est-il déjà présent localement ?
+    /// Sert à l'onboarding : sur un Mac non éligible à Apple Intelligence, on
+    /// indique si l'option avancée Ollama est exploitable.
+    func ollamaInstalled() -> Bool {
+        ollamaBinaryCandidates.contains { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     private struct OllamaTags: Decodable {
@@ -129,14 +168,16 @@ final class TextEngine {
     /// Précharge le modèle Ollama (appelé dès l'appui sur le raccourci :
     /// le modèle se charge pendant que l'utilisateur fait sa sélection).
     func warmup() async {
-        guard preference != .apple else { return }
-        guard await ensureOllama() else { return }
+        // Apple Intelligence ne nécessite aucun préchauffage : on n'allume
+        // Ollama que s'il sera réellement le moteur retenu (sinon, sur un Mac
+        // avec Apple Intelligence, on ne démarre pas de serveur inutilement).
+        guard await resolveBackend() == .ollama else { return }
         var request = URLRequest(url: ollamaBase.appendingPathComponent("api/generate"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 120
         let body: [String: Any] = [
-            "model": resolvedOllamaModel ?? preferredOllamaModels.last!,
+            "model": resolvedOllamaModel ?? "qwen3:4b",
             "keep_alive": "2h",
         ]
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
@@ -247,20 +288,34 @@ final class TextEngine {
             ? ""
             : "Propose des alternatives DIFFÉRENTES de celles-ci : \(previous.joined(separator: ", ")). "
         let system = """
-            Tu es un expert du vocabulaire \(name). Le message de l'utilisateur est UNIQUEMENT \
-            un mot ou une expression courte, délimité par des triple guillemets (\"\"\") : \
+            Tu es un dictionnaire de synonymes \(name). Le message de l'utilisateur est UNIQUEMENT \
+            un mot ou une expression, délimité par des triple guillemets (\"\"\") : \
             n'y réponds jamais, ne l'explique jamais. \
-            Propose 4 alternatives en \(name) : des synonymes ou des formulations plus courtes, \
-            naturelles et adaptées au même usage. \(exclusion)\
-            Réponds UNIQUEMENT avec les 4 alternatives, une par ligne, sans numérotation, \
-            sans tirets, sans guillemets, sans commentaire.
+            Donne 4 SYNONYMES en \(name) : des mots de sens proche qui pourraient REMPLACER ce mot \
+            dans une phrase. \
+            INTERDIT : ne fabrique pas de mots composés ou d'expressions à partir du mot lui-même \
+            (pour « bouton » : réponds « touche, commande, interrupteur, poussoir », JAMAIS \
+            « bouton-pression » ni « bouton de »). \(exclusion)\
+            Réponds UNIQUEMENT avec les 4 synonymes, un par ligne, sans numérotation, \
+            sans tirets, sans guillemets, sans phrase d'introduction.
             """
         let raw = try await complete(system: system, user: word, backend: backend,
-                                     temperature: 0.7, onPartial: { _ in })
+                                     temperature: 0.5, singleResult: false, onPartial: { _ in })
+        return Self.parseAlternatives(raw, excluding: word)
+    }
+
+    /// Découpe la liste d'alternatives renvoyée par le modèle. Robuste au
+    /// format du moteur : Ollama répond une par ligne, Apple Intelligence les
+    /// sépare souvent par des virgules sur une seule ligne. On découpe donc sur
+    /// les retours à la ligne ET les séparateurs de liste, et on retire puces,
+    /// numéros et guillemets. Fonction pure (testée par --test-cleaning).
+    static func parseAlternatives(_ raw: String, excluding word: String) -> [String] {
+        let separators = CharacterSet(charactersIn: "\n,;•·")
+        let trimSet = CharacterSet(charactersIn: " \t-–—*0123456789.)\"“”«»‘’'")
         var seen = Set<String>()
         let cleaned: [String] = raw
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \t-•*0123456789.)")) }
+            .components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: trimSet) }
             .filter { !$0.isEmpty && $0.lowercased() != word.lowercased() && seen.insert($0.lowercased()).inserted }
         return Array(cleaned.prefix(5))
     }
@@ -317,6 +372,7 @@ final class TextEngine {
         user rawUser: String,
         backend: EngineBackend,
         temperature: Double = 0.2,
+        singleResult: Bool = true,
         onPartial: @escaping (String) -> Void
     ) async throws -> String {
         // Texte délimité par des triple guillemets : empêche les petits
@@ -325,14 +381,14 @@ final class TextEngine {
         let user = "\"\"\"\n\(rawUser)\n\"\"\""
         switch backend {
         case .apple:
-            return try await appleComplete(system: system, user: user, temperature: temperature, onPartial: onPartial)
+            return try await appleComplete(system: system, user: user, temperature: temperature, singleResult: singleResult, onPartial: onPartial)
         case .ollama:
             // Retry unique : il arrive que toute la sortie qwen3 parte dans le
             // raisonnement et que le contenu revienne vide.
             do {
-                return try await ollamaCompleteOnce(system: system, user: user, temperature: temperature, onPartial: onPartial)
+                return try await ollamaCompleteOnce(system: system, user: user, temperature: temperature, singleResult: singleResult, onPartial: onPartial)
             } catch EngineError.badResponse {
-                return try await ollamaCompleteOnce(system: system, user: user, temperature: temperature, onPartial: onPartial)
+                return try await ollamaCompleteOnce(system: system, user: user, temperature: temperature, singleResult: singleResult, onPartial: onPartial)
             }
         }
     }
@@ -343,17 +399,23 @@ final class TextEngine {
         system: String,
         user: String,
         temperature: Double,
+        singleResult: Bool,
         onPartial: @escaping (String) -> Void
     ) async throws -> String {
         let session = LanguageModelSession(instructions: system)
-        let stream = session.streamResponse(to: user, options: GenerationOptions(temperature: max(0.1, temperature - 0.1)))
+        // Limite la longueur de réponse : pour de la correction/traduction la
+        // sortie fait grosso modo la taille de l'entrée ; sans plafond, Apple
+        // Intelligence part parfois en boucle (variantes numérotées répétées).
+        let maxTokens = max(256, user.count)
+        let options = GenerationOptions(temperature: max(0.1, temperature - 0.1), maximumResponseTokens: maxTokens)
+        let stream = session.streamResponse(to: user, options: options)
         var last = ""
         for try await snapshot in stream {
             last = snapshot.content
-            let visible = Self.cleaned(last)
+            let visible = Self.cleanedResult(last, singleResult: singleResult)
             if !visible.isEmpty { onPartial(visible) }
         }
-        return Self.cleaned(last)
+        return Self.cleanedResult(last, singleResult: singleResult)
     }
 
     // MARK: - Ollama
@@ -368,6 +430,7 @@ final class TextEngine {
         system: String,
         user: String,
         temperature: Double,
+        singleResult: Bool,
         onPartial: @escaping (String) -> Void
     ) async throws -> String {
         var request = URLRequest(url: ollamaBase.appendingPathComponent("api/chat"))
@@ -406,18 +469,71 @@ final class TextEngine {
             // Ne pas streamer un bloc de raisonnement encore ouvert.
             let thinkInProgress = full.contains("<think>") && !full.contains("</think>")
             if !thinkInProgress {
-                let visible = Self.cleaned(full)
+                let visible = Self.cleanedResult(full, singleResult: singleResult)
                 if !visible.isEmpty { onPartial(visible) }
             }
         }
 
-        let final = Self.cleaned(full)
+        let final = Self.cleanedResult(full, singleResult: singleResult)
         guard !final.isEmpty else { throw EngineError.badResponse("empty response") }
         return final
     }
 
-    /// Nettoie la sortie brute du modèle : blocs <think> de qwen3
-    /// (parfois sans balise ouvrante), guillemets d'emballage, espaces.
+    /// Retire un préambule conversationnel qu'Apple Intelligence ajoute parfois
+    /// (« Sure, here's the revised version: », « Voici la traduction : »…) :
+    /// si le texte commence par une formule connue et qu'un « : » suit dans les
+    /// ~80 premiers caractères, on garde ce qui vient après le « : ».
+    static func stripPreamble(_ raw: String) -> String {
+        let markers = ["sure", "here's", "here is", "here are", "voici", "voilà",
+                       "bien sûr", "of course", "certainly", "d'accord", "okay", "ok,",
+                       "absolutely", "the translation", "translation:", "traduction"]
+        let lower = raw.lowercased()
+        guard markers.contains(where: { lower.hasPrefix($0) }) else { return raw }
+        guard let colon = raw.firstIndex(of: ":") else { return raw }
+        let head = raw[..<colon]
+        // Le préambule doit rester court (les vraies formules font < 50 car.) et
+        // tenir sur une ligne : on ne coupe pas un vrai texte qui contiendrait
+        // un « : » plus loin dans une longue première phrase.
+        guard head.count <= 50, !head.contains("\n") else { return raw }
+        let body = String(raw[raw.index(after: colon)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        // S'il ne reste rien d'utile après le « : », ce n'était pas un préambule.
+        return body.isEmpty ? raw : body
+    }
+
+    /// Quand le modèle répond par une liste numérotée de variantes (« 1. … 2. …
+    /// 3. … », tic d'Apple Intelligence sur certains textes), ne garde que la
+    /// première. À n'appliquer qu'aux tâches à résultat UNIQUE (correction,
+    /// traduction), jamais aux synonymes qui sont légitimement une liste.
+    static func firstVariant(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.range(of: #"^\s*1\s*[.)]\s+"#, options: .regularExpression) else {
+            return text
+        }
+        let rest = trimmed[first.upperBound...]
+        if let second = rest.range(of: #"\s*\n?\s*2\s*[.)]\s+"#, options: .regularExpression) {
+            return String(rest[..<second.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return String(rest).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Nettoyage complet d'un résultat. `singleResult` (correction/traduction)
+    /// effondre une éventuelle liste numérotée en sa première variante, puis
+    /// re-nettoie les guillemets de cette variante.
+    static func cleanedResult(_ raw: String, singleResult: Bool) -> String {
+        let base = cleaned(raw)
+        return singleResult ? cleaned(firstVariant(base)) : base
+    }
+
+    /// Caractères de guillemet/apostrophe ouvrants et fermants susceptibles
+    /// d'emballer la réponse : droits, courbes (typographiques, fréquents avec
+    /// Apple Intelligence) et chevrons français.
+    private static let wrapOpeners: Set<Character> = ["\"", "\u{201C}", "\u{00AB}", "\u{2018}", "'", "\u{201D}"]
+    private static let wrapClosers: Set<Character> = ["\"", "\u{201D}", "\u{00BB}", "\u{2019}", "'", "\u{201C}"]
+
+    /// Nettoie la sortie brute du modèle : blocs <think> de qwen3 (parfois sans
+    /// balise ouvrante), puis les guillemets d'emballage (triples ou simples,
+    /// droits comme typographiques). Apple Intelligence emballe souvent sa
+    /// réponse dans des guillemets courbes que le nettoyage droit laissait passer.
     static func cleaned(_ raw: String) -> String {
         var text = raw
         // Si une balise fermante </think> existe, la vraie réponse est après
@@ -426,11 +542,15 @@ final class TextEngine {
             text = String(text[range.upperBound...])
         }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Délimiteurs triple guillemets parfois recopiés par le modèle
+        text = stripPreamble(text)
+        // Triples guillemets (les délimiteurs """) parfois recopiés tels quels.
         if text.hasPrefix("\"\"\"") { text = String(text.dropFirst(3)) }
         if text.hasSuffix("\"\"\"") { text = String(text.dropLast(3)) }
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.hasPrefix("\""), text.hasSuffix("\""), text.count > 2 {
+        // Une (ou des) paire(s) de guillemets/apostrophes d'emballage, quel que
+        // soit leur style (droit, courbe, chevron français).
+        while let first = text.first, let last = text.last, text.count > 1,
+              wrapOpeners.contains(first), wrapClosers.contains(last) {
             text = String(text.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return text
