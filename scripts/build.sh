@@ -17,12 +17,16 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp .build/release/Butterfly "$APP/Contents/MacOS/Butterfly"
 cp Info.plist "$APP/Contents/Info.plist"
-# Applique le nom/identifiant de la variante au bundle copié.
+# Applique le nom/identifiant stable au bundle copié.
 /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$APP/Contents/Info.plist"
 if [ -f assets/AppIcon.icns ]; then
   cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+fi
+if [ -f assets/icon_1024.png ]; then
+  sips -z 128 128 assets/icon_1024.png \
+    --out "$APP/Contents/Resources/ButterflyMenuBar.png" >/dev/null
 fi
 
 # Developer ID pour une distribution notarizable, sinon signature ad hoc. Une
