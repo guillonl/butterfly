@@ -46,11 +46,12 @@ struct ButterflyShape: Shape {
 
 enum ButterflyArt {
 
-    /// Logo d'app complet dans la barre des menus, comme Bob : le carré clair
-    /// et le ruban Butterfly restent visibles en modes clair et sombre.
+    /// Même traitement que Bob : ICNS de l'app sans mode template. Butterfly
+    /// occupe davantage son canevas, donc 17 pt donne la même hauteur optique
+    /// que l'ICNS de Bob affiché à 18 pt.
     static func statusItemImage() -> NSImage {
-        let size = NSSize(width: 20, height: 20)
-        if let url = Bundle.main.url(forResource: "ButterflyMenuBar", withExtension: "png"),
+        let size = NSSize(width: 17, height: 17)
+        if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let image = NSImage(contentsOf: url) {
             image.size = size
             image.isTemplate = false

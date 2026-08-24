@@ -24,11 +24,6 @@ cp Info.plist "$APP/Contents/Info.plist"
 if [ -f assets/AppIcon.icns ]; then
   cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 fi
-if [ -f assets/icon_1024.png ]; then
-  sips -z 128 128 assets/icon_1024.png \
-    --out "$APP/Contents/Resources/ButterflyMenuBar.png" >/dev/null
-fi
-
 # Developer ID pour une distribution notarizable, sinon signature ad hoc. Une
 # identité ne doit jamais être choisie implicitement : un certificat local peut
 # afficher une demande Trousseau invisible et laisser un bundle à moitié signé.
