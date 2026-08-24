@@ -5,7 +5,8 @@
 <h1 align="center">Butterfly</h1>
 
 <p align="center">
-  Une loupe Liquid Glass pour macOS qui corrige tes fautes et traduit n'importe quel texte affiché à l'écran.<br/>
+  <strong>Ton correcteur et traducteur, partout sur ton Mac.</strong><br/>
+  Un raccourci, et n'importe quel texte affiché à l'écran est corrigé et traduit dans l'instant.<br/>
   <strong>100 % local, 100 % gratuit.</strong> Aucun texte ne quitte jamais ta machine.
 </p>
 
@@ -15,14 +16,25 @@
 
 ## Comment ça marche
 
-1. Appuie sur **⌥⌘B** (Option + Cmd + B) : l'écran gèle et une loupe en verre suit ton curseur.
-2. **Clique-glisse** sur n'importe quel texte (un mail, un Slack, une image, un PDF, peu importe : c'est de la reconnaissance visuelle). Échap pour annuler.
-3. Un panneau en verre apparaît : texte détecté, **correction** des fautes, et **traduction**. Texte déjà sélectionnable ? **⌃⌘B** corrige directement la sélection, sans loupe.
+Deux façons d'attraper du texte, au choix :
+
+1. **N'importe quoi à l'écran (loupe, ⌥⌘B).** Appuie sur **⌥⌘B** : l'écran gèle et une loupe en verre suit ton curseur. Clique-glisse sur le texte à traiter, où qu'il soit (un mail, un Slack, une image, un PDF, une vidéo en pause) : c'est de la reconnaissance visuelle, ça marche même là où le texte n'est pas sélectionnable. Échap pour annuler.
+2. **Du texte déjà sélectionnable (⌃⌘B).** Sélectionne du texte dans n'importe quelle app, puis **⌃⌘B**. Pas de loupe ni d'OCR : Butterfly lit directement ta sélection.
+
+Dans les deux cas, un panneau en verre apparaît avec le texte détecté, sa **correction** et sa **traduction**.
+
+**Tu choisis ce que Butterfly fait** (clic droit sur l'icône → Réglages → Mode de traitement) :
+
+- **Corriger et traduire** (par défaut)
+- **Corriger seulement**, plus rapide, sans traduction
+- **Traduire seulement**, traduction directe de l'original
 
 Dans le panneau :
 
 - La correction ne touche qu'aux fautes avérées ; si le texte est déjà parfait, un tag **« Aucune correction »** l'indique.
+- **Clique un mot** dans la correction ou la traduction : une bulle propose des synonymes et tournures plus courtes (clic sur une alternative = remplacement, le bouton ↻ en relance d'autres).
 - Le bouton **« Régénérer une autre proposition »** en bas reformule la correction (même sens, autre tournure), autant de fois que tu veux.
+- **Panneau redimensionnable** par les bords et les coins, à la taille que tu veux : Butterfly la mémorise pour la prochaine fois.
 - Un bouton copier sur chaque résultat, un « Voir plus » sur les textes longs, et le panneau scrolle au lieu de déborder de l'écran.
 
 **Langues : détection automatique + presets.** La langue du texte est détectée toute seule. Chaque langue source mémorise sa cible : par défaut français → anglais et anglais → français ; si tu choisis « Allemand » dans le picker pour un texte français, tous les prochains textes français seront traduits en allemand, sans toucher au preset des autres langues.
@@ -87,6 +99,8 @@ bash scripts/make_dmg.sh                     # → dist/Butterfly-<version>.dmg 
 |---|---|
 | Corriger un texte à l'écran (loupe) | ⌥⌘B puis clique-glisse |
 | Corriger le texte sélectionné | sélectionne du texte dans n'importe quelle app, puis ⌃⌘B |
+| Synonymes / autres tournures d'un mot | clique un mot dans le panneau |
+| Redimensionner le panneau | glisse un bord ou un coin |
 | Personnaliser les deux raccourcis | clic droit sur l'icône → Réglages… |
 | Annuler la sélection | Échap |
 | Historique | Clic sur l'icône papillon |
@@ -100,7 +114,7 @@ Le raccourci « texte sélectionné » saute la loupe et l'OCR : il lit directem
 Clic droit sur l'icône papillon → **Réglages…** :
 
 - **Raccourcis personnalisables** : clique un raccourci puis tape la nouvelle combinaison (au moins ⌘, ⌥ ou ⌃).
-- **Afficher la traduction** : un toggle pour désactiver complètement la traduction si tu ne veux que la correction (plus rapide).
+- **Mode de traitement** : choisis entre **corriger et traduire**, **corriger seulement** (plus rapide, pas d'appel de traduction) ou **traduire seulement** (traduction directe de l'original, sans passer par la correction).
 
 <p align="center">
   <img src="assets/screenshot-settings.png" width="400" alt="Réglages des raccourcis" />
@@ -126,13 +140,13 @@ swift build -c release                     # build
 ./.build/release/Butterfly --demo-overlay  # ouvre l'overlay loupe au lancement
 ./.build/release/Butterfly --demo-history  # ouvre l'historique avec données fictives
 ./.build/release/Butterfly --demo-onboarding # ouvre le guide de démarrage
-./.build/release/Butterfly --test-resize   # test du resize du panneau (sans souris)
-./.build/release/Butterfly --test-replace  # test du remplacement de mot
+./.build/release/Butterfly --test-resize   # test pur de la logique de redimensionnement (bords/coins)
+./.build/release/Butterfly --test-replace  # test pur du remplacement de mot par un synonyme
 swift scripts/make_icon.swift              # regénérer l'icône papillon
 swift scripts/make_dmg_background.swift    # regénérer le fond du DMG
 ```
 
-Architecture : `HotKeyManager` (hotkey Carbon, zéro permission) → `ScreenCaptureService` (ScreenCaptureKit, écran gelé) → `OverlayView` (loupe SwiftUI) → `OCRService` (Vision) → `TextEngine` (Apple FoundationModels en priorité, Ollama en secours, streaming) → panneaux SwiftUI en `glassEffect`.
+Architecture : `HotKeyManager` (hotkey Carbon, zéro permission) → `ScreenCaptureService` (ScreenCaptureKit, écran gelé) → `OverlayView` (loupe SwiftUI) **ou** `SelectedTextService` (API Accessibilité, raccourci sélection) → `OCRService` (Vision) → `TextEngine` (Apple Foundation Models en priorité, Ollama en secours, streaming et modes corriger/traduire) → panneaux SwiftUI en `glassEffect` (`ResultView` redimensionnable, `WordBubble` pour les synonymes).
 
 ## Licence
 
