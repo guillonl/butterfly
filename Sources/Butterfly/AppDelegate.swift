@@ -80,6 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--test-diff") {
             runDiffTests()
         }
+        if CommandLine.arguments.contains("--test-quality") {
+            QualityBench.run()
+        }
         if CommandLine.arguments.contains("--test-learn") {
             runLearnTests()
         }

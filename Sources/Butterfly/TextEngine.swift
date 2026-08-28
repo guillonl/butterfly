@@ -282,6 +282,9 @@ final class TextEngine {
             Le texte est en \(name) : le texte corrigé doit IMPÉRATIVEMENT rester en \(name), \
             ne le traduis jamais dans une autre langue. \
             Corrige UNIQUEMENT les fautes avérées (orthographe, grammaire, conjugaison, ponctuation, accents). \
+            Sois particulièrement attentif aux homophones : « sa » n'est correct que devant un nom \
+            (sinon écris « ça »), distingue « on a » de « ont », « a » de « à », « et » de « est », \
+            « ce » de « se ». \
             Ne modifie JAMAIS un mot ou une graphie déjà corrects : conserve notamment les \
             traits d'union corrects (« entre-temps », « peut-être », « c'est-à-dire ») \
             et la typographie d'origine. Si le texte est déjà correct, renvoie-le strictement inchangé. \
