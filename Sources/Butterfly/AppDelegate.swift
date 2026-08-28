@@ -11,8 +11,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var selectionMenuItem: NSMenuItem?
     private let overlay = OverlayController()
     private let resultPanel = ResultPanelController()
-    private let historyPanel = HistoryPanelController()
-    private let settingsPanel = SettingsPanelController()
     private let mainWindow = MainWindowController()
     private let dictation = DictationController()
     private let wordBubble = WordBubbleController()
@@ -31,7 +29,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Réglages intégrés à la fenêtre principale (refonte 2026-08-28).
         mainWindow.onOpenSettings = { [weak self] in
-            self?.mainWindow.model.section = .settings
+            guard let model = self?.mainWindow.model else { return }
+            if model.section != .settings {
+                model.sectionBeforeSettings = model.section
+            }
+            model.section = .settings
         }
         mainWindow.model.onShortcutChange = { [weak self] action, shortcut in
             guard HotKeyManager.shared.apply(shortcut, for: action) else { return false }
@@ -43,13 +45,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (mode copie) au-dessus du curseur.
         mainWindow.model.onWordTap = { [weak self] word, language in
             self?.showMainWindowBubble(word: word, language: language)
-        }
-
-        settingsPanel.onShortcutChange = { [weak self] action, shortcut in
-            guard HotKeyManager.shared.apply(shortcut, for: action) else { return false }
-            ShortcutStore.save(shortcut, for: action)
-            self?.updateMenuShortcuts()
-            return true
         }
 
         // Cliquer un mot dans le panneau résultat → bulle au-dessus du mot ;
@@ -95,14 +90,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let file = CommandLine.arguments.count > flagIndex + 1 ? CommandLine.arguments[flagIndex + 1] : nil
             runDictationTest(file: file)
         }
-        if CommandLine.arguments.contains("--demo-history") {
-            runHistoryDemo()
-        }
-        if CommandLine.arguments.contains("--demo-settings") {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                self?.settingsPanel.show()
-            }
-        }
         if CommandLine.arguments.contains("--demo-bubble") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 guard let self, let screen = NSScreen.main else { return }
@@ -127,7 +114,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.action = #selector(statusItemClicked)
         statusItem.button?.target = self
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
-        historyPanel.onCapture = { [weak self] in self?.startCapture() }
 
         let menu = NSMenu()
 
@@ -252,12 +238,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func statusItemClicked() {
         guard let event = NSApp.currentEvent, let button = statusItem.button else { return }
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
-            historyPanel.close()
             statusItem.menu = actionsMenu
             button.performClick(nil)
             statusItem.menu = nil
         } else {
-            historyPanel.close()
             mainWindow.show()
         }
     }
@@ -275,7 +259,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showSettings() {
-        historyPanel.close()
+        if mainWindow.model.section != .settings {
+            mainWindow.model.sectionBeforeSettings = mainWindow.model.section
+        }
         mainWindow.model.section = .settings
         mainWindow.show()
     }
@@ -976,32 +962,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// `--demo-history` : remplit l'historique de données fictives et ouvre
-    /// le panneau sous l'icône menu bar (vérification visuelle sans clic).
-    private func runHistoryDemo() {
-        let samples: [(String, String, String, String)] = [
-            ("Je veut tester l'aplication", "Je veux tester l'application", "I want to test the application", "en"),
-            ("This is a sentense with mistaks", "This is a sentence with mistakes", "Ceci est une phrase avec des fautes", "fr"),
-            ("On se voit demain matin a la gare", "On se voit demain matin à la gare", "See you tomorrow morning at the station", "en"),
-        ]
-        for sample in samples {
-            HistoryStore.shared.add(HistoryEntry(
-                id: UUID(),
-                date: Date(),
-                original: sample.0,
-                corrected: sample.1,
-                translated: sample.2,
-                targetLanguage: sample.3
-            ))
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-            guard let self, let button = self.statusItem.button else {
-                FileHandle.standardError.write(Data("[debug] demo-history: no status button\n".utf8))
-                return
-            }
-            FileHandle.standardError.write(Data("[debug] demo-history: showing panel\n".utf8))
-            self.historyPanel.show(relativeTo: button)
-        }
-    }
 
     /// `--demo` : affiche le panneau résultat avec des données fictives
     /// (permet de vérifier l'UI sans permission d'enregistrement d'écran).

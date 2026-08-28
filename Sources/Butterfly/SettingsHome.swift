@@ -56,14 +56,20 @@ struct SettingsHomeView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Catégories
+            // Catégories : sidebar pleine (remplace celle de la bibliothèque)
             VStack(alignment: .leading, spacing: 3) {
+                Spacer().frame(height: 34)
+                BackToLibraryButton {
+                    model.section = model.sectionBeforeSettings
+                }
+                .padding(.horizontal, 4)
+                .padding(.top, 8)
                 Text(L10n.t("main.settings").uppercased())
                     .font(.system(size: 10, weight: .semibold))
                     .tracking(1.2)
                     .foregroundStyle(Theme.textQuaternary)
                     .padding(.horizontal, 12)
-                    .padding(.top, 44)
+                    .padding(.top, 16)
                     .padding(.bottom, 8)
                 ForEach(SettingsCategory.allCases) { item in
                     CategoryRow(category: item, selected: category == item) {
@@ -78,8 +84,8 @@ struct SettingsHomeView: View {
                     .padding(.bottom, 16)
             }
             .padding(.horizontal, 8)
-            .frame(width: 190, alignment: .leading)
-            .background(Theme.surfaceBase)
+            .frame(width: 220, alignment: .leading)
+            .background(Theme.surfaceRaised)
 
             Rectangle().fill(Theme.hairline).frame(width: 1)
 
@@ -107,6 +113,35 @@ struct SettingsHomeView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(Theme.surfaceDeep)
         }
+    }
+}
+
+/// Retour vers la bibliothèque : chevron + marque, en tête de la sidebar.
+private struct BackToLibraryButton: View {
+    var action: () -> Void
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(hovered ? Theme.textPrimary : Theme.textTertiary)
+                ButterflyShape()
+                    .fill(Theme.textPrimary)
+                    .frame(width: 18, height: 18)
+                Text("Butterfly")
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.textPrimary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 32)
+            .background(Color.white.opacity(hovered ? 0.05 : 0), in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
     }
 }
 
@@ -281,7 +316,13 @@ private struct GeneralSettings: View {
     /// Échap annule, modificateur requis, conflits détectés.
     private func installMonitor() {
         guard keyMonitor == nil else { return }
+        if ProcessInfo.processInfo.environment["BUTTERFLY_DEBUG"] != nil {
+            FileHandle.standardError.write(Data("[settings] monitor installé\n".utf8))
+        }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if ProcessInfo.processInfo.environment["BUTTERFLY_DEBUG"] != nil {
+                FileHandle.standardError.write(Data("[settings] keyDown code=\(event.keyCode) recording=\(String(describing: recording))\n".utf8))
+            }
             guard let action = recording else { return event }
             let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
             if event.keyCode == 53, modifiers.isEmpty {

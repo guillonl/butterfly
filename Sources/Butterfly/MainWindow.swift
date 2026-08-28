@@ -48,6 +48,8 @@ enum LibrarySection: String, CaseIterable, Identifiable {
 @MainActor
 final class MainViewModel: ObservableObject {
     @Published var section: LibrarySection = .all
+    /// Section d'où l'on venait avant d'ouvrir les Réglages (pour le retour).
+    var sectionBeforeSettings: LibrarySection = .all
     @Published var searchText = ""
     @Published var selectedEntryID: UUID?
     /// Clic sur une correction (mot vert) : (mot nettoyé, langue source).
@@ -139,8 +141,7 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     func show() {
         if let window {
             NSApp.setActivationPolicy(.regular)
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate()
+            Self.activate(window)
             return
         }
 
@@ -173,8 +174,25 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
         self.window = window
         NSApp.setActivationPolicy(.regular)
+        Self.activate(window)
+    }
+
+    /// Activation robuste : l'activation coopérative (macOS 14+) peut refuser
+    /// un premier `activate()` (app accessory promue .regular, lancement sans
+    /// interaction) ; la fenêtre semble alors réactive mais les frappes vont
+    /// à l'app précédente (bug vécu : recorder de raccourcis muet). On insiste
+    /// sur plusieurs tours de runloop jusqu'à devenir réellement active.
+    private static func activate(_ window: NSWindow, attempt: Int = 0) {
         window.makeKeyAndOrderFront(nil)
-        NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
+        guard attempt < 5 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if !NSApp.isActive {
+                activate(window, attempt: attempt + 1)
+            } else if !window.isKeyWindow {
+                window.makeKeyAndOrderFront(nil)
+            }
+        }
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -191,18 +209,22 @@ struct MainView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            SidebarView(model: model, onOpenSettings: onOpenSettings)
-                .frame(width: 220)
-            Rectangle().fill(Theme.hairline).frame(width: 1)
-            if model.section == .learning {
-                LearningView(profile: model.profile)
-            } else if model.section == .settings {
+            // Les Réglages occupent toute la fenêtre, avec leur propre
+            // sidebar et un retour (comme Wispr Flow) — review 2026-08-28.
+            if model.section == .settings {
                 SettingsHomeView(model: model)
             } else {
-                EntryListView(model: model)
-                    .frame(width: 300)
+                SidebarView(model: model, onOpenSettings: onOpenSettings)
+                    .frame(width: 220)
                 Rectangle().fill(Theme.hairline).frame(width: 1)
-                DetailView(model: model)
+                if model.section == .learning {
+                    LearningView(profile: model.profile)
+                } else {
+                    EntryListView(model: model)
+                        .frame(width: 300)
+                    Rectangle().fill(Theme.hairline).frame(width: 1)
+                    DetailView(model: model)
+                }
             }
         }
         .background(Theme.surfaceDeep)
@@ -257,6 +279,7 @@ struct SidebarView: View {
                 .padding(.bottom, 14)
 
             SettingsRow {
+                model.sectionBeforeSettings = model.section
                 model.section = .settings
             }
                 .padding(.horizontal, 22)
