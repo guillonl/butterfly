@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let resultPanel = ResultPanelController()
     private let historyPanel = HistoryPanelController()
     private let settingsPanel = SettingsPanelController()
+    private let mainWindow = MainWindowController()
     private let wordBubble = WordBubbleController()
     private var capturing = false
 
@@ -22,6 +23,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeyManager.shared.handlers[.capture] = { [weak self] in self?.startCapture() }
         HotKeyManager.shared.handlers[.selection] = { [weak self] in self?.startSelectionCorrection() }
         HotKeyManager.shared.start()
+
+        mainWindow.onOpenSettings = { [weak self] in self?.settingsPanel.show() }
+        // Mot corrigé cliqué dans la fenêtre principale → bulle de synonymes
+        // (mode copie) au-dessus du curseur.
+        mainWindow.model.onWordTap = { [weak self] word, language in
+            self?.showMainWindowBubble(word: word, language: language)
+        }
 
         settingsPanel.onShortcutChange = { [weak self] action, shortcut in
             guard HotKeyManager.shared.apply(shortcut, for: action) else { return false }
@@ -56,6 +64,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 self?.startCapture()
             }
+        }
+        if CommandLine.arguments.contains("--demo-main") {
+            runMainWindowDemo()
+        }
+        if CommandLine.arguments.contains("--test-diff") {
+            runDiffTests()
         }
         if CommandLine.arguments.contains("--demo-history") {
             runHistoryDemo()
@@ -92,6 +106,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         historyPanel.onCapture = { [weak self] in self?.startCapture() }
 
         let menu = NSMenu()
+
+        let openItem = NSMenuItem(
+            title: L10n.t("main.open"),
+            action: #selector(openMainWindow),
+            keyEquivalent: ""
+        )
+        openItem.target = self
+        menu.addItem(openItem)
+        menu.addItem(.separator())
 
         let captureItem = NSMenuItem(
             title: L10n.t("menu.capture"),
@@ -173,6 +196,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Bulle de synonymes pour la fenêtre principale : mode copie (le clic
+    /// sur une proposition la copie, pas de remplacement en place ici).
+    private func showMainWindowBubble(word: String, language: String) {
+        let mouseGlobal = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseGlobal, $0.frame, false) }) ?? NSScreen.main else { return }
+        let anchor = CGRect(
+            x: mouseGlobal.x - screen.frame.minX - 40,
+            y: screen.frame.maxY - mouseGlobal.y - 12,
+            width: 80,
+            height: 20
+        )
+        let bubble = wordBubble.show(
+            word: word,
+            sourceLanguage: language,
+            near: anchor,
+            on: screen,
+            anchorMode: .above,
+            takeFocus: false
+        )
+        Task { @MainActor in
+            guard let backend = await TextEngine.shared.resolveBackend() else {
+                bubble.phase = .failure(L10n.t("panel.engineMissing"))
+                return
+            }
+            bubble.backend = backend
+            bubble.load()
+        }
+    }
+
     @objc private func statusItemClicked() {
         guard let event = NSApp.currentEvent, let button = statusItem.button else { return }
         if event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
@@ -181,8 +233,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.performClick(nil)
             statusItem.menu = nil
         } else {
-            historyPanel.toggle(relativeTo: button)
+            historyPanel.close()
+            mainWindow.show()
         }
+    }
+
+    @objc private func openMainWindow() {
+        mainWindow.show()
     }
 
     @objc private func menuCapture() {
@@ -259,13 +316,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            await processText(text, model: model)
+            await processText(text, model: model, trigger: "capture")
         }
     }
 
     /// Pipeline commun aux deux entrées (OCR de zone, texte sélectionné) :
     /// détection de langue, historique, correction streamée puis traduction.
-    private func processText(_ text: String, model: ResultModel) async {
+    private func processText(_ text: String, model: ResultModel, trigger: String) async {
         // Cible automatique : preset mémorisé par langue source
         // (défauts : fr → en, en → fr).
         let recognizer = NLLanguageRecognizer()
@@ -282,7 +339,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             original: text,
             corrected: nil,
             translated: nil,
-            targetLanguage: model.targetLanguage
+            targetLanguage: model.targetLanguage,
+            trigger: trigger
         ))
 
         guard let backend = await TextEngine.shared.resolveBackend() else {
@@ -297,12 +355,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if model.mode.showsCorrection {
             var translationSource = text
             do {
+                let started = Date()
                 let corrected = try await TextEngine.shared.correct(text, source: detected, using: backend) { partial in
                     DispatchQueue.main.async { model.correction = .value(partial) }
                 }
                 translationSource = corrected
                 model.correction = .value(corrected)
                 HistoryStore.shared.updateCorrection(id: entryID, corrected: corrected)
+                HistoryStore.shared.updateMetrics(
+                    id: entryID,
+                    engine: TextEngine.shared.label(for: backend),
+                    processingTime: Date().timeIntervalSince(started)
+                )
             } catch {
                 model.correction = .failure(L10n.t("panel.error"))
             }
@@ -353,7 +417,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 model.fail(L10n.t("panel.noSelection"))
                 return
             }
-            await processText(text, model: model)
+            await processText(text, model: model, trigger: "selection")
         }
     }
 
@@ -445,6 +509,135 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// `--selftest` : vérifie le moteur IA de bout en bout depuis le terminal,
     /// dans les deux sens (FR→EN et EN→FR), correction restant dans la langue source.
+    /// Fixtures de la fenêtre principale (--demo-main) : données en mémoire
+    /// uniquement, l'historique et le profil réels ne sont pas touchés.
+    private func runMainWindowDemo() {
+        let now = Date()
+        let hour: TimeInterval = 3600
+        HistoryStore.shared.loadDemoEntries([
+            HistoryEntry(
+                id: UUID(), date: now.addingTimeInterval(-0.4 * hour),
+                original: "Je te partage le fichier des que j'ai terminer la maquette.",
+                corrected: "Je te partage le fichier dès que j'ai terminé la maquette.",
+                translated: "I'll share the file with you as soon as I've finished the mockup.",
+                targetLanguage: "en", trigger: "capture",
+                engine: "Apple Intelligence · local", processingTime: 0.9
+            ),
+            HistoryEntry(
+                id: UUID(), date: now.addingTimeInterval(-3.2 * hour),
+                original: "Peux-tu relancer le client au sujet du devis avant vendredi ?",
+                corrected: "Peux-tu relancer le client au sujet du devis avant vendredi ?",
+                translated: nil,
+                targetLanguage: "en", trigger: "selection",
+                engine: "Apple Intelligence · local", processingTime: 0.7
+            ),
+            HistoryEntry(
+                id: UUID(), date: now.addingTimeInterval(-5 * hour),
+                original: "Prépare un résumé des retours client pour la revue de sprint de jeudi matin, et ajoute les captures du nouveau parcours d'onboarding.",
+                corrected: "Prépare un résumé des retours client pour la revue de sprint de jeudi matin, et ajoute les captures du nouveau parcours d'onboarding.",
+                targetLanguage: "en", kind: .dictation, sourceApp: "Mail",
+                trigger: "dictation",
+                rawTranscript: "euh prépare un résumé des retours client pour la revue de sprint de jeudi matin et euh ajoute les captures du nouveau parcours onboarding",
+                duration: 14
+            ),
+            HistoryEntry(
+                id: UUID(), date: now.addingTimeInterval(-26 * hour),
+                original: "Merci pour ta patiance, on revient vers toi très vite.",
+                corrected: "Merci pour ta patience, on revient vers toi très vite.",
+                translated: nil,
+                targetLanguage: "en", trigger: "selection",
+                engine: "Qwen3 4B Instruct · local", processingTime: 1.2
+            ),
+            HistoryEntry(
+                id: UUID(), date: now.addingTimeInterval(-28 * hour),
+                original: "On se voit jeudi pour la revue de sprint, j'apporte les maquettes.",
+                corrected: "On se voit jeudi pour la revue de sprint, j'apporte les maquettes.",
+                targetLanguage: "en", kind: .dictation, sourceApp: "Slack",
+                trigger: "dictation",
+                rawTranscript: "on se voit jeudi pour la revue de sprint euh j'apporte les maquettes",
+                duration: 9
+            ),
+        ])
+        LanguageProfileStore.shared.loadDemoFixtures()
+        // Variante : `--demo-main dictations|learning` présélectionne une vue.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self else { return }
+            self.mainWindow.show()
+            if let flagIndex = CommandLine.arguments.firstIndex(of: "--demo-main"),
+               CommandLine.arguments.count > flagIndex + 1,
+               let section = LibrarySection(rawValue: CommandLine.arguments[flagIndex + 1]) {
+                self.mainWindow.model.section = section
+            }
+        }
+    }
+
+    /// Non-régression du diff mot à mot (--test-diff) : substitutions,
+    /// insertions, suppressions, ponctuation, comptage de fautes.
+    private func runDiffTests() {
+        struct Case {
+            let name: String
+            let original: String
+            let corrected: String
+            let expected: [WordDiff.Segment]
+            let faults: Int
+        }
+        let cases = [
+            Case(
+                name: "substitutions",
+                original: "des que j'ai terminer",
+                corrected: "dès que j'ai terminé",
+                expected: [.removed("des"), .added("dès"), .same("que"), .same("j'ai"), .removed("terminer"), .added("terminé")],
+                faults: 2
+            ),
+            Case(
+                name: "identique",
+                original: "Rien à corriger ici.",
+                corrected: "Rien à corriger ici.",
+                expected: [.same("Rien"), .same("à"), .same("corriger"), .same("ici.")],
+                faults: 0
+            ),
+            Case(
+                name: "insertion",
+                original: "je viens demain",
+                corrected: "je viens dès demain",
+                expected: [.same("je"), .same("viens"), .added("dès"), .same("demain")],
+                faults: 1
+            ),
+            Case(
+                name: "suppression",
+                original: "il faut que de partir",
+                corrected: "il faut partir",
+                expected: [.same("il"), .same("faut"), .removed("que"), .removed("de"), .same("partir")],
+                faults: 1
+            ),
+            Case(
+                name: "ponctuation",
+                original: "bonjour comment vas tu",
+                corrected: "Bonjour, comment vas-tu ?",
+                expected: [.removed("bonjour"), .added("Bonjour,"), .same("comment"), .removed("vas"), .removed("tu"), .added("vas-tu"), .added("?")],
+                faults: 2
+            ),
+            Case(
+                name: "vide → texte",
+                original: "",
+                corrected: "un mot",
+                expected: [.added("un"), .added("mot")],
+                faults: 1
+            ),
+        ]
+        var failures = 0
+        for testCase in cases {
+            let segments = WordDiff.diff(original: testCase.original, corrected: testCase.corrected)
+            let faults = WordDiff.faultCount(original: testCase.original, corrected: testCase.corrected)
+            let ok = segments == testCase.expected && faults == testCase.faults
+            if !ok { failures += 1 }
+            let status = ok ? "OK " : "ÉCHEC"
+            FileHandle.standardError.write(Data("[diff] \(status) \(testCase.name) → \(segments) fautes=\(faults)\n".utf8))
+        }
+        FileHandle.standardError.write(Data("[diff] \(cases.count - failures)/\(cases.count) cas passés\n".utf8))
+        exit(failures == 0 ? 0 : 1)
+    }
+
     private func runSelfTest() {
         Task {
             print("[selftest] resolving backend…")
