@@ -46,10 +46,18 @@ final class DictationController {
         }) {
             monitors.append(monitor)
         }
-        // Échap pendant une dictée : annulation.
-        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
-            guard event.keyCode == 53 else { return }
+        // Pendant une dictée : Échap annule, et TOUTE frappe annule aussi
+        // (indispensable quand la touche choisie est un modificateur usuel :
+        // ⌘ droite maintenu + C = copie voulue, pas une dictée).
+        if let monitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { [weak self] _ in
             Task { @MainActor in await self?.cancel() }
+        }) {
+            monitors.append(monitor)
+        }
+        if let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] event in
+            guard self?.isActive == true else { return event }
+            Task { @MainActor in await self?.cancel() }
+            return nil
         }) {
             monitors.append(monitor)
         }
@@ -61,8 +69,9 @@ final class DictationController {
     }
 
     private func handleFlags(_ event: NSEvent) {
-        guard event.keyCode == 63 else { return }
-        if event.modifierFlags.contains(.function) {
+        let key = DictationSettings.shortcut
+        guard event.keyCode == key.keyCode else { return }
+        if event.modifierFlags.contains(key.flag) {
             Task { await begin() }
         } else {
             Task { await finish() }
@@ -118,6 +127,9 @@ final class DictationController {
 
     private func finish() async {
         guard isActive, let session else { return }
+        // Dès ici la session n'est plus annulable : le ⌘V synthétique de
+        // l'insertion ne doit pas déclencher le monitor « frappe = annuler ».
+        isActive = false
         hudTimer?.invalidate()
         hudTimer = nil
 
@@ -127,6 +139,7 @@ final class DictationController {
             await cancelSilently(session: session)
             return
         }
+
 
         hud.model.phase = .processing
         let raw = await engine.stop()
@@ -200,6 +213,7 @@ final class DictationController {
 
     private func cancel() async {
         guard isActive, let session else { return }
+        isActive = false
         await cancelSilently(session: session)
     }
 

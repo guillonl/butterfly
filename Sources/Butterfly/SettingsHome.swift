@@ -1,10 +1,59 @@
 import AppKit
 import SwiftUI
 
+/// Touche de dictée (maintenir pour parler). Modificateurs seuls,
+/// identifiés par keyCode dans les flagsChanged : plus fiables qu'une
+/// combinaison classique pour du push-to-talk.
+enum DictationKey: String, CaseIterable, Identifiable {
+    case fn
+    case rightCommand
+    case rightOption
+    case leftControl
+
+    var id: String { rawValue }
+
+    var keyCode: UInt16 {
+        switch self {
+        case .fn: return 63
+        case .rightCommand: return 54
+        case .rightOption: return 61
+        case .leftControl: return 59
+        }
+    }
+
+    var flag: NSEvent.ModifierFlags {
+        switch self {
+        case .fn: return .function
+        case .rightCommand: return .command
+        case .rightOption: return .option
+        case .leftControl: return .control
+        }
+    }
+
+    var label: String { L10n.t("settings.dictation.key.\(rawValue)") }
+
+    /// Symbole court pour le HUD et les keycaps.
+    var symbol: String {
+        switch self {
+        case .fn: return "fn"
+        case .rightCommand: return "⌘"
+        case .rightOption: return "⌥"
+        case .leftControl: return "⌃"
+        }
+    }
+}
+
 /// Réglages de la dictée, persistés (UserDefaults, domaine de l'app).
 enum DictationSettings {
     private static let cleanupKey = "dictationCleanup"
     private static let localeKey = "dictationLocale"
+    private static let shortcutKey = "dictationShortcut"
+
+    /// Touche à maintenir pour dicter (défaut : fn).
+    static var shortcut: DictationKey {
+        get { DictationKey(rawValue: UserDefaults.standard.string(forKey: shortcutKey) ?? "fn") ?? .fn }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: shortcutKey) }
+    }
 
     /// Passe LLM de nettoyage à la volée (défaut : activée).
     static var cleanupEnabled: Bool {
@@ -357,14 +406,29 @@ private struct GeneralSettings: View {
 private struct DictationSettingsView: View {
     @State private var cleanup = DictationSettings.cleanupEnabled
     @State private var localeChoice = DictationSettings.localeChoice
+    @State private var shortcut = DictationSettings.shortcut
 
     var body: some View {
         SettingsGroup {
             SettingRow(
                 title: L10n.t("settings.dictation.shortcut"),
-                subtitle: L10n.t("settings.dictation.shortcutHint")
+                subtitle: L10n.t("settings.dictation.shortcutHint", shortcut.symbol)
             ) {
-                StudioKeycap(text: "fn")
+                Picker("", selection: Binding(
+                    get: { shortcut },
+                    set: { value in
+                        shortcut = value
+                        DictationSettings.shortcut = value
+                    }
+                )) {
+                    ForEach(DictationKey.allCases) { key in
+                        Text(key.label).tag(key)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .controlSize(.small)
+                .fixedSize()
             }
             SettingsDivider()
             SettingRow(
