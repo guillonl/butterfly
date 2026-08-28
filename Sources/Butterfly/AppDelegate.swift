@@ -14,11 +14,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let historyPanel = HistoryPanelController()
     private let settingsPanel = SettingsPanelController()
     private let mainWindow = MainWindowController()
+    private let dictation = DictationController()
     private let wordBubble = WordBubbleController()
     private var capturing = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
+
+        // Dictée système : fn maintenu, partout. Nécessite l'Accessibilité
+        // (les monitors globaux sont inertes sans elle, sans erreur).
+        dictation.start()
 
         HotKeyManager.shared.handlers[.capture] = { [weak self] in self?.startCapture() }
         HotKeyManager.shared.handlers[.selection] = { [weak self] in self?.startSelectionCorrection() }
@@ -70,6 +75,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if CommandLine.arguments.contains("--test-diff") {
             runDiffTests()
+        }
+        if CommandLine.arguments.contains("--test-learn") {
+            runLearnTests()
+        }
+        if CommandLine.arguments.contains("--demo-hud") {
+            runHUDDemo()
+        }
+        if let flagIndex = CommandLine.arguments.firstIndex(of: "--test-dictation") {
+            let file = CommandLine.arguments.count > flagIndex + 1 ? CommandLine.arguments[flagIndex + 1] : nil
+            runDictationTest(file: file)
         }
         if CommandLine.arguments.contains("--demo-history") {
             runHistoryDemo()
@@ -567,6 +582,145 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                CommandLine.arguments.count > flagIndex + 1,
                let section = LibrarySection(rawValue: CommandLine.arguments[flagIndex + 1]) {
                 self.mainWindow.model.section = section
+            }
+        }
+    }
+
+    /// Démo visuelle de la pilule de dictée (--demo-hud) : enchaîne les
+    /// états sans micro ni moteur.
+    private func runHUDDemo() {
+        let hud = DictationHUDController()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            hud.model.languageCode = "fr"
+            hud.show()
+            var tick = 0
+            Timer.scheduledTimer(withTimeInterval: 0.18, repeats: true) { timer in
+                tick += 1
+                Task { @MainActor in
+                    hud.model.level = 0.25 + 0.65 * abs(sin(Double(tick) * 0.6))
+                    hud.model.elapsed = Double(tick) * 0.18
+                }
+                if tick > 22 { timer.invalidate() }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4.5) {
+                hud.model.phase = .processing
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
+                hud.model.phase = .inserted(words: 22)
+                hud.close(after: 2.0)
+            }
+        }
+    }
+
+    /// Non-régression de l'extraction de retouches (--test-learn) :
+    /// la boucle d'apprentissage ne doit apprendre que des substitutions
+    /// plausibles de vocabulaire.
+    private func runLearnTests() {
+        struct Case {
+            let name: String
+            let inserted: String
+            let field: String
+            let expected: [DictationController.Retouche]
+        }
+        let cases = [
+            Case(
+                name: "nom propre recasé",
+                inserted: "envoie le devis à energir demain",
+                field: "envoie le devis à Énergir demain",
+                expected: [.init(heard: "energir", written: "Énergir")]
+            ),
+            Case(
+                name: "sigle réécrit",
+                inserted: "je présente ça à bécé jeudi",
+                field: "je présente ça à BYC jeudi",
+                expected: [.init(heard: "bécé", written: "BYC")]
+            ),
+            Case(
+                name: "texte intact",
+                inserted: "rien ne change ici",
+                field: "préambule. rien ne change ici. suite",
+                expected: []
+            ),
+            Case(
+                name: "mot courant ignoré",
+                inserted: "je viens demain matin",
+                field: "je viens demain soir",
+                expected: []
+            ),
+            Case(
+                name: "nom composé 1 vers 2",
+                inserted: "regarde sur wisperflow pour comparer",
+                field: "regarde sur Wispr Flow pour comparer",
+                expected: [.init(heard: "wisperflow", written: "Wispr Flow")]
+            ),
+            Case(
+                name: "réécriture totale ignorée",
+                inserted: "on se voit jeudi pour la revue",
+                field: "finalement je préfère annuler notre point",
+                expected: []
+            ),
+        ]
+        var failures = 0
+        for testCase in cases {
+            let result = DictationController.extractRetouches(inserted: testCase.inserted, fieldValue: testCase.field)
+            let ok = result == testCase.expected
+            if !ok { failures += 1 }
+            FileHandle.standardError.write(Data("[learn] \(ok ? "OK " : "ÉCHEC") \(testCase.name) → \(result)\n".utf8))
+        }
+        FileHandle.standardError.write(Data("[learn] \(cases.count - failures)/\(cases.count) cas passés\n".utf8))
+        exit(failures == 0 ? 0 : 1)
+    }
+
+    /// Test bout en bout du moteur de dictée (--test-dictation [fichier]) :
+    /// transcrit un fichier audio (par défaut : généré via `say`) et vérifie
+    /// que SpeechTranscriber renvoie du texte.
+    private func runDictationTest(file: String?) {
+        Task { @MainActor in
+            let url: URL
+            let expected: String?
+            if let file {
+                url = URL(fileURLWithPath: file)
+                expected = nil
+            } else {
+                // Générer une phrase de référence avec la synthèse système.
+                let phrase = L10n.isFrench
+                    ? "Bonjour, ceci est un test de dictée locale."
+                    : "Hello, this is a local dictation test."
+                expected = phrase
+                url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("butterfly-dictation-test.aiff")
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+                process.arguments = ["-o", url.path, phrase]
+                try? process.run()
+                process.waitUntilExit()
+            }
+            let locale = Locale(identifier: L10n.isFrench ? "fr_FR" : "en_US")
+            let installed = await DictationEngine.isModelInstalled(for: locale)
+            FileHandle.standardError.write(Data("[dictation] modèle \(locale.identifier) installé=\(installed)\n".utf8))
+            do {
+                let started = Date()
+                let text = try await DictationEngine.transcribeFile(at: url, locale: locale)
+                let elapsed = String(format: "%.2f", Date().timeIntervalSince(started))
+                FileHandle.standardError.write(Data("[dictation] transcrit en \(elapsed)s : « \(text) »\n".utf8))
+                if text.isEmpty {
+                    FileHandle.standardError.write(Data("[dictation] ÉCHEC : transcription vide\n".utf8))
+                    exit(1)
+                }
+                if let expected {
+                    let normalize: (String) -> String = { value in
+                        value.lowercased()
+                            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                            .filter { !$0.isEmpty }
+                            .joined(separator: " ")
+                    }
+                    let match = normalize(text) == normalize(expected)
+                    FileHandle.standardError.write(Data("[dictation] attendu : « \(expected) » → correspondance normalisée=\(match)\n".utf8))
+                }
+                exit(0)
+            } catch {
+                FileHandle.standardError.write(Data("[dictation] ÉCHEC : \(error)\n".utf8))
+                exit(1)
             }
         }
     }

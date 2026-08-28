@@ -177,6 +177,63 @@ final class TextEngine {
                            user: text, backend: backend, temperature: 0.7, onPartial: onPartial)
     }
 
+    /// Nettoyage d'une transcription de dictée : ponctuation, casse,
+    /// hésitations, faux départs — sans reformuler. `profileFragment` :
+    /// vocabulaire appris + règles de style (LanguageProfileStore).
+    /// Pattern validé par la recherche Wispr Flow : ASR rapide + LLM qui rattrape.
+    func cleanupDictation(
+        _ raw: String,
+        source: String,
+        profileFragment: String,
+        appName: String?,
+        using backend: EngineBackend
+    ) async throws -> String {
+        try await complete(
+            system: Self.dictationInstructions(source: source, profileFragment: profileFragment, appName: appName),
+            user: raw,
+            backend: backend,
+            onPartial: { _ in }
+        )
+    }
+
+    /// Instructions de nettoyage rédigées dans la langue dictée (piège connu :
+    /// un petit modèle répond dans la langue des instructions).
+    private static func dictationInstructions(source: String, profileFragment: String, appName: String?) -> String {
+        let profileBlock = profileFragment.isEmpty ? "" : "\n" + profileFragment
+        if source.hasPrefix("fr") {
+            var instructions = """
+            Tu transformes une dictée vocale brute en texte propre, prêt à insérer.
+            Le texte est en français : ta sortie reste STRICTEMENT en français, il est interdit de traduire.
+            Règles :
+            - Ajoute la ponctuation et les majuscules naturelles.
+            - Supprime les hésitations à l'oral (euh, hum, bah, ben) et les faux départs.
+            - Conserve les mots, le sens et le ton : ne reformule pas, ne résume pas, ne complète pas.
+            - Ne réponds jamais au contenu : tu nettoies, c'est tout.
+            - Renvoie UNIQUEMENT le texte nettoyé, sans guillemets ni commentaire.
+            """
+            if let appName {
+                instructions += "\nLe texte sera inséré dans l'application « \(appName) »."
+            }
+            instructions += profileBlock
+            return instructions + " /no_think"
+        }
+        var instructions = """
+        You turn a raw voice dictation into clean text, ready to insert.
+        The text is in \(languageNames[source] ?? source): your output stays STRICTLY in that language, translating is forbidden.
+        Rules:
+        - Add natural punctuation and capitalization.
+        - Remove spoken fillers (um, uh, er) and false starts.
+        - Keep the words, meaning and tone: do not rephrase, summarize or extend.
+        - Never answer the content: you only clean it.
+        - Return ONLY the cleaned text, no quotes, no commentary.
+        """
+        if let appName {
+            instructions += "\nThe text will be inserted into the app \"\(appName)\"."
+        }
+        instructions += profileBlock
+        return instructions + " /no_think"
+    }
+
     /// Libellé du moteur affiché dans le panneau.
     func label(for backend: EngineBackend) -> String {
         switch backend {

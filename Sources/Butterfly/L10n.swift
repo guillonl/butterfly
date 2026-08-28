@@ -104,6 +104,12 @@ enum L10n {
         "main.empty.dictations": "La dictée arrive dans une prochaine version : maintiens une touche et parle, Butterfly écrit.",
         "main.empty.detail": "Sélectionne une entrée à gauche",
         "main.listHint": "%@ capture · %@ sélection",
+        // HUD dictée
+        "hud.processing": "Nettoyage…",
+        "hud.inserted": "Inséré · %@",
+        "hud.noText": "Rien entendu",
+        "hud.noFocus": "Aucun champ actif",
+        "hud.holdHint": "Relâche fn pour insérer · Échap pour annuler",
         // Vue Apprentissage
         "learning.title": "Mon profil de langage",
         "learning.loop": "Boucle d'auto-amélioration",
@@ -243,6 +249,12 @@ enum L10n {
         "main.empty.dictations": "Dictation is coming in a future version: hold a key and talk, Butterfly writes.",
         "main.empty.detail": "Select an entry on the left",
         "main.listHint": "%@ capture · %@ selection",
+        // Dictation HUD
+        "hud.processing": "Cleaning up…",
+        "hud.inserted": "Inserted · %@",
+        "hud.noText": "Heard nothing",
+        "hud.noFocus": "No active field",
+        "hud.holdHint": "Release fn to insert · Esc to cancel",
         // Learning view
         "learning.title": "My language profile",
         "learning.loop": "Self-improvement loop",
