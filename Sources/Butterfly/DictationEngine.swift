@@ -154,6 +154,10 @@ final class DictationEngine {
         let audioEngine = AVAudioEngine()
         self.audioEngine = audioEngine
         let input = audioEngine.inputNode
+        // Micro choisi dans Réglages > Dictée ("" = entrée système).
+        if let audioUnit = input.audioUnit {
+            AudioInputDevices.apply(uid: DictationSettings.microphoneUID, to: audioUnit)
+        }
         let tapFormat = input.outputFormat(forBus: 0)
         guard tapFormat.sampleRate > 0 else { throw DictationError.audioEngineUnavailable }
 

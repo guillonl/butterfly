@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 
 /// Touche de dictée (maintenir pour parler). Modificateurs seuls,
@@ -66,6 +67,13 @@ enum DictationSettings {
     private static let cleanupKey = "dictationCleanup"
     private static let localeKey = "dictationLocale"
     private static let shortcutKey = "dictationShortcut"
+    private static let micKey = "dictationMicUID"
+
+    /// UID du micro choisi ("" = entrée système par défaut).
+    static var microphoneUID: String {
+        get { UserDefaults.standard.string(forKey: micKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: micKey) }
+    }
 
     /// Touche à maintenir pour dicter (défaut : fn).
     static var shortcut: DictationKey {
@@ -449,9 +457,39 @@ private struct DictationSettingsView: View {
     @State private var cleanup = DictationSettings.cleanupEnabled
     @State private var localeChoice = DictationSettings.localeChoice
     @State private var shortcut = DictationSettings.shortcut
+    @State private var micUID = DictationSettings.microphoneUID
+    @State private var devices: [AudioInputDevices.Device] = []
+    @StateObject private var meter = MicLevelMeter()
 
     var body: some View {
         SettingsGroup {
+            SettingRow(
+                title: L10n.t("settings.dictation.mic"),
+                subtitle: L10n.t("settings.dictation.micHint")
+            ) {
+                VStack(alignment: .trailing, spacing: 8) {
+                    Picker("", selection: Binding(
+                        get: { micUID },
+                        set: { value in
+                            micUID = value
+                            DictationSettings.microphoneUID = value
+                            meter.restart(uid: value)
+                        }
+                    )) {
+                        Text(L10n.t("settings.dictation.mic.system")).tag("")
+                        ForEach(devices) { device in
+                            Text(device.name).tag(device.uid)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .fixedSize()
+                    // Vu-mètre en direct : parle, la barre doit bouger.
+                    MicLevelBar(level: meter.level, active: meter.isRunning)
+                }
+            }
+            SettingsDivider()
             SettingRow(
                 title: L10n.t("settings.dictation.shortcut"),
                 subtitle: L10n.t("settings.dictation.shortcutHint", shortcut.symbol)
@@ -507,6 +545,86 @@ private struct DictationSettingsView: View {
                 .fixedSize()
             }
         }
+        .onAppear {
+            devices = AudioInputDevices.list()
+            meter.restart(uid: micUID)
+        }
+        .onDisappear { meter.stop() }
+    }
+}
+
+/// Barre de niveau micro : preuve visuelle immédiate que le bon micro capte.
+private struct MicLevelBar: View {
+    let level: Double
+    let active: Bool
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.10))
+                Capsule()
+                    .fill(level > 0.02 ? Theme.ok : Theme.textQuaternary)
+                    .frame(width: max(4, geometry.size.width * level))
+                    .animation(.easeOut(duration: 0.1), value: level)
+            }
+        }
+        .frame(width: 160, height: 5)
+        .opacity(active ? 1 : 0.35)
+        .help(L10n.t("settings.dictation.micLevel"))
+    }
+}
+
+/// Écoute légère du micro pour le vu-mètre des réglages (RMS lissé).
+/// Déclenche aussi la demande de permission micro au premier passage.
+@MainActor
+final class MicLevelMeter: ObservableObject {
+    @Published var level: Double = 0
+    @Published var isRunning = false
+    private var engine: AVAudioEngine?
+
+    func restart(uid: String) {
+        stop()
+        AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+            Task { @MainActor [weak self] in
+                guard granted else { return }
+                self?.start(uid: uid)
+            }
+        }
+    }
+
+    private func start(uid: String) {
+        let engine = AVAudioEngine()
+        if let audioUnit = engine.inputNode.audioUnit {
+            AudioInputDevices.apply(uid: uid, to: audioUnit)
+        }
+        let format = engine.inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0 else { return }
+        engine.inputNode.installTap(onBus: 0, bufferSize: 2048, format: format) { [weak self] buffer, _ in
+            guard let channel = buffer.floatChannelData?[0] else { return }
+            let count = Int(buffer.frameLength)
+            guard count > 0 else { return }
+            var sum: Float = 0
+            for index in 0..<count { sum += channel[index] * channel[index] }
+            let rms = sqrt(sum / Float(count))
+            let value = max(0, min(1, Double((20 * log10(max(rms, 0.00001)) + 50) / 50)))
+            Task { @MainActor [weak self] in self?.level = value }
+        }
+        engine.prepare()
+        do {
+            try engine.start()
+            self.engine = engine
+            isRunning = true
+        } catch {
+            isRunning = false
+        }
+    }
+
+    func stop() {
+        engine?.inputNode.removeTap(onBus: 0)
+        engine?.stop()
+        engine = nil
+        isRunning = false
+        level = 0
     }
 }
 

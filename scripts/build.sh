@@ -25,5 +25,5 @@ if security find-identity -v -p codesigning 2>/dev/null | grep -q "Butterfly Dev
 fi
 # --options runtime : Hardened Runtime, bloque l'injection de dylib dans un
 # process qui détient des permissions sensibles (écran, accessibilité).
-codesign --force --options runtime --sign "$IDENTITY" "$APP"
+codesign --force --options runtime --entitlements Butterfly.entitlements --sign "$IDENTITY" "$APP"
 echo "OK → $APP (signé : $IDENTITY, hardened runtime)"
