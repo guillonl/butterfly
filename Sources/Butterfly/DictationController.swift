@@ -14,6 +14,9 @@ final class DictationController {
 
     private let engine = DictationEngine()
     private let hud = DictationHUDController()
+    /// L'Accessibilité manque : l'AppDelegate affiche l'alerte qui guide
+    /// vers les Réglages Système.
+    var onAccessibilityMissing: (() -> Void)?
     private var monitors: [Any] = []
     private var session: Session?
     private var hudTimer: Timer?
@@ -194,13 +197,24 @@ final class DictationController {
             }
         }
 
-        debugLog("cleaned: « \(cleaned) » → insertion")
-        // Insertion au curseur (l'app cible a gardé le focus : HUD non-activant).
-        await PasteService.insert(cleaned)
-
         let words = WordDiff.tokens(cleaned).count
-        hud.model.phase = .inserted(words: words)
-        hud.close(after: 1.2)
+        if SelectedTextService.hasPermission {
+            debugLog("cleaned: « \(cleaned) » → insertion (AX ok)")
+            // Insertion au curseur (l'app cible a gardé le focus : HUD non-activant).
+            await PasteService.insert(cleaned)
+            hud.model.phase = .inserted(words: words)
+            hud.close(after: 1.2)
+        } else {
+            // Sans Accessibilité, le ⌘V simulé est silencieusement inerte :
+            // laisser le texte dans le presse-papiers et guider l'utilisateur.
+            debugLog("AX MANQUANTE → texte laissé dans le presse-papiers")
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(cleaned, forType: .string)
+            hud.model.phase = .failed(L10n.t("hud.axMissing"))
+            hud.close(after: 2.6)
+            onAccessibilityMissing?()
+        }
 
         HistoryStore.shared.add(HistoryEntry(
             id: UUID(),
@@ -254,17 +268,61 @@ final class DictationController {
 
     // MARK: - Boucle d'apprentissage (watcher AX différé)
 
-    /// Capture l'élément AX focalisé maintenant, relit sa valeur après
-    /// `delay`, et transforme les retouches en règles proposées.
-    private func scheduleRetoucheWatch(inserted: String, appName: String?, delay: TimeInterval = 120) {
-        guard let element = Self.focusedElement() else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+    /// Capture l'élément AX focalisé maintenant et le relit en plusieurs
+    /// passes (+20 s, +45 s, +90 s, +3 min) : une lecture unique ratait les
+    /// retouches faites juste après l'insertion (message déjà envoyé) comme
+    /// celles faites plus tard. Chaque passe apprend les retouches nouvelles ;
+    /// la déduplication évite de compter plusieurs fois la même.
+    private func scheduleRetoucheWatch(inserted: String, appName: String?) {
+        guard let element = Self.focusedElement() else {
+            debugLog("watch: aucun élément focalisé, abandon")
+            return
+        }
+        // Écarts entre les passes (cumul ≈ 20 s, 45 s, 90 s, 180 s).
+        let delays: [TimeInterval] = ProcessInfo.processInfo.environment["BUTTERFLY_DEBUG"] != nil
+            ? [8, 12, 20]
+            : [20, 25, 45, 90]
+        watchPass(element: element, inserted: inserted, appName: appName, delays: delays, learned: [])
+    }
+
+    private func watchPass(
+        element: AXUIElement,
+        inserted: String,
+        appName: String?,
+        delays: [TimeInterval],
+        learned: Set<String>
+    ) {
+        guard let delay = delays.first else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
             var valueRef: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success,
-                  let value = valueRef as? String, !value.isEmpty else { return }
-            Task { @MainActor in
-                Self.learnRetouches(inserted: inserted, fieldValue: value, appName: appName)
+            let status = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef)
+            guard status == .success, let value = valueRef as? String, !value.isEmpty else {
+                // Champ vidé (message envoyé) ou disparu : rien à apprendre de plus.
+                self.debugLog("watch(+\(Int(delay))s): champ illisible ou vide (status \(status.rawValue)) → arrêt")
+                return
             }
+            var learnedNow = learned
+            let retouches = Self.extractRetouches(inserted: inserted, fieldValue: value)
+            for retouche in retouches {
+                let key = "\(retouche.heard.lowercased())→\(retouche.written)"
+                guard !learnedNow.contains(key) else { continue }
+                learnedNow.insert(key)
+                LanguageProfileStore.shared.observeRetouche(
+                    heard: retouche.heard,
+                    written: retouche.written,
+                    app: appName
+                )
+                self.debugLog("watch: retouche apprise « \(retouche.heard) » → « \(retouche.written) »")
+            }
+            self.debugLog("watch(+\(Int(delay))s): \(retouches.count) retouche(s), champ \(value.count) car.")
+            self.watchPass(
+                element: element,
+                inserted: inserted,
+                appName: appName,
+                delays: Array(delays.dropFirst()),
+                learned: learnedNow
+            )
         }
     }
 

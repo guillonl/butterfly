@@ -134,6 +134,7 @@ enum L10n {
         "hud.processing": "Nettoyage…",
         "hud.inserted": "Inséré · %@",
         "hud.noText": "Rien entendu",
+        "hud.axMissing": "Copié · autorise l'Accessibilité pour insérer",
         "hud.noFocus": "Aucun champ actif",
         "hud.holdHint": "Relâche fn pour insérer · Échap pour annuler",
         // Vue Apprentissage
@@ -306,6 +307,7 @@ enum L10n {
         "hud.processing": "Cleaning up…",
         "hud.inserted": "Inserted · %@",
         "hud.noText": "Heard nothing",
+        "hud.axMissing": "Copied · allow Accessibility to auto-insert",
         "hud.noFocus": "No active field",
         "hud.holdHint": "Release fn to insert · Esc to cancel",
         // Learning view

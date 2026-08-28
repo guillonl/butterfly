@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Dictée système : fn maintenu, partout. Nécessite l'Accessibilité
         // (les monitors globaux sont inertes sans elle, sans erreur).
         dictation.start()
+        dictation.onAccessibilityMissing = { [weak self] in self?.showAccessibilityAlert() }
 
         HotKeyManager.shared.handlers[.capture] = { [weak self] in self?.startCapture() }
         HotKeyManager.shared.handlers[.selection] = { [weak self] in self?.startSelectionCorrection() }
