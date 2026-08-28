@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
+        AppSettings.applyActivationPolicy(windowOpen: false)
 
         // Dictée système : fn maintenu, partout. Nécessite l'Accessibilité
         // (les monitors globaux sont inertes sans elle, sans erreur).

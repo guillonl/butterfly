@@ -43,6 +43,24 @@ enum DictationKey: String, CaseIterable, Identifiable {
     }
 }
 
+/// Réglages généraux de l'app.
+enum AppSettings {
+    private static let dockKey = "showInDock"
+
+    /// Icône permanente dans le Dock (défaut : non, app de barre de menus).
+    static var showInDock: Bool {
+        get { UserDefaults.standard.bool(forKey: dockKey) }
+        set { UserDefaults.standard.set(newValue, forKey: dockKey) }
+    }
+
+    /// Applique la politique d'activation selon le réglage et l'état de la
+    /// fenêtre principale.
+    @MainActor
+    static func applyActivationPolicy(windowOpen: Bool) {
+        NSApp.setActivationPolicy(showInDock || windowOpen ? .regular : .accessory)
+    }
+}
+
 /// Réglages de la dictée, persistés (UserDefaults, domaine de l'app).
 enum DictationSettings {
     private static let cleanupKey = "dictationCleanup"
@@ -284,6 +302,7 @@ private struct SettingsDivider: View {
 
 private struct GeneralSettings: View {
     @ObservedObject var model: MainViewModel
+    @State private var showInDock = AppSettings.showInDock
     @State private var shortcuts: [HotKeyAction: Shortcut] = [
         .capture: ShortcutStore.shortcut(for: .capture),
         .selection: ShortcutStore.shortcut(for: .selection),
@@ -307,6 +326,22 @@ private struct GeneralSettings: View {
                 subtitle: L10n.t("settings.selectionHint")
             ) {
                 recorderButton(for: .selection)
+            }
+            SettingsDivider()
+            SettingRow(
+                title: L10n.t("settings.general.dock"),
+                subtitle: L10n.t("settings.general.dockHint")
+            ) {
+                StudioToggle(isOn: Binding(
+                    get: { showInDock },
+                    set: { value in
+                        showInDock = value
+                        AppSettings.showInDock = value
+                        // La fenêtre est forcément ouverte (on est dedans) :
+                        // l'effet visible se joue à sa fermeture.
+                        AppSettings.applyActivationPolicy(windowOpen: true)
+                    }
+                ))
             }
             SettingsDivider()
             SettingRow(

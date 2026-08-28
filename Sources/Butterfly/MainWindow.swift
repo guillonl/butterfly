@@ -196,8 +196,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        // Redevenir une app de barre de menus discrète.
-        NSApp.setActivationPolicy(.accessory)
+        // App de barre de menus discrète, sauf si l'utilisateur a choisi
+        // de garder l'icône au Dock (Réglages > Général).
+        AppSettings.applyActivationPolicy(windowOpen: false)
     }
 }
 
