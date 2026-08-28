@@ -104,6 +104,22 @@ enum L10n {
         "main.empty.dictations": "La dictée arrive dans une prochaine version : maintiens une touche et parle, Butterfly écrit.",
         "main.empty.detail": "Sélectionne une entrée à gauche",
         "main.listHint": "%@ capture · %@ sélection",
+        // Réglages intégrés
+        "settings.cat.general": "Général",
+        "settings.cat.dictation": "Dictée",
+        "settings.cat.engine": "Moteur IA",
+        "settings.cat.about": "À propos",
+        "settings.dictation.shortcut": "Raccourci",
+        "settings.dictation.shortcutHint": "Maintiens fn et parle, relâche pour insérer au curseur",
+        "settings.dictation.cleanup": "Nettoyage à la volée",
+        "settings.dictation.cleanupHint": "Ponctuation, hésitations et vocabulaire appris, par le moteur local",
+        "settings.dictation.language": "Langue de dictée",
+        "settings.dictation.languageHint": "Le modèle de reconnaissance est propre à chaque langue",
+        "settings.dictation.language.auto": "Automatique",
+        "settings.engine.preference": "Moteur préféré",
+        "settings.engine.preferenceHint": "Automatique choisit Apple Intelligence, puis Ollama en secours",
+        "settings.engine.status": "État",
+        "settings.about.tagline": "Correcteur, traducteur et dictée, 100 % local",
         // HUD dictée
         "hud.processing": "Nettoyage…",
         "hud.inserted": "Inséré · %@",
@@ -145,6 +161,7 @@ enum L10n {
         "learning.add.written": "Écrit",
         "learning.add.confirm": "Ajouter",
         "learning.add.cancel": "Annuler",
+        "learning.info": "Tu dictes, tu retouches le texte inséré, Butterfly compare au bout de 2 minutes. Une retouche répétée 3 fois devient une règle proposée ici ; validée, elle s'applique aux dictées suivantes. Tout reste sur le Mac.",
 
     ]
 
@@ -249,6 +266,22 @@ enum L10n {
         "main.empty.dictations": "Dictation is coming in a future version: hold a key and talk, Butterfly writes.",
         "main.empty.detail": "Select an entry on the left",
         "main.listHint": "%@ capture · %@ selection",
+        // Integrated settings
+        "settings.cat.general": "General",
+        "settings.cat.dictation": "Dictation",
+        "settings.cat.engine": "AI Engine",
+        "settings.cat.about": "About",
+        "settings.dictation.shortcut": "Shortcut",
+        "settings.dictation.shortcutHint": "Hold fn and speak, release to insert at the cursor",
+        "settings.dictation.cleanup": "On-the-fly cleanup",
+        "settings.dictation.cleanupHint": "Punctuation, fillers and learned vocabulary, by the local engine",
+        "settings.dictation.language": "Dictation language",
+        "settings.dictation.languageHint": "The recognition model is per-language",
+        "settings.dictation.language.auto": "Automatic",
+        "settings.engine.preference": "Preferred engine",
+        "settings.engine.preferenceHint": "Automatic picks Apple Intelligence, with Ollama as fallback",
+        "settings.engine.status": "Status",
+        "settings.about.tagline": "Proofreader, translator and dictation, 100% local",
         // Dictation HUD
         "hud.processing": "Cleaning up…",
         "hud.inserted": "Inserted · %@",
@@ -290,6 +323,7 @@ enum L10n {
         "learning.add.written": "Written",
         "learning.add.confirm": "Add",
         "learning.add.cancel": "Cancel",
+        "learning.info": "You dictate, you tweak the inserted text, Butterfly compares after 2 minutes. An edit repeated 3 times becomes a proposed rule here; once approved, it applies to your next dictations. Everything stays on your Mac.",
 
     ]
 

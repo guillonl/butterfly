@@ -29,7 +29,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         HotKeyManager.shared.handlers[.selection] = { [weak self] in self?.startSelectionCorrection() }
         HotKeyManager.shared.start()
 
-        mainWindow.onOpenSettings = { [weak self] in self?.settingsPanel.show() }
+        // Réglages intégrés à la fenêtre principale (refonte 2026-08-28).
+        mainWindow.onOpenSettings = { [weak self] in
+            self?.mainWindow.model.section = .settings
+        }
+        mainWindow.model.onShortcutChange = { [weak self] action, shortcut in
+            guard HotKeyManager.shared.apply(shortcut, for: action) else { return false }
+            ShortcutStore.save(shortcut, for: action)
+            self?.updateMenuShortcuts()
+            return true
+        }
         // Mot corrigé cliqué dans la fenêtre principale → bulle de synonymes
         // (mode copie) au-dessus du curseur.
         mainWindow.model.onWordTap = { [weak self] word, language in
@@ -267,7 +276,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func showSettings() {
         historyPanel.close()
-        settingsPanel.show()
+        mainWindow.model.section = .settings
+        mainWindow.show()
     }
 
     @objc private func selectEngine(_ sender: NSMenuItem) {

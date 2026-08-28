@@ -78,9 +78,8 @@ final class DictationController {
         // Capturer l'app cible AVANT d'afficher quoi que ce soit.
         let appName = NSWorkspace.shared.frontmostApplication?.localizedName
 
-        // Locale : langue système de l'utilisateur (fr/en…) ; le modèle
-        // SpeechTranscriber est par locale.
-        let locale = Locale(identifier: L10n.isFrench ? "fr_FR" : "en_US")
+        // Locale : réglage Dictée (auto = langue système).
+        let locale = DictationSettings.effectiveLocale
 
         // Fichier de réécoute (Application Support/Butterfly/Recordings).
         var recordingFile: String?
@@ -145,7 +144,7 @@ final class DictationController {
         var cleaned = raw
         var engineLabel: String?
         var processingTime: TimeInterval?
-        if let backend = await TextEngine.shared.resolveBackend() {
+        if DictationSettings.cleanupEnabled, let backend = await TextEngine.shared.resolveBackend() {
             let started = Date()
             if let result = try? await TextEngine.shared.cleanupDictation(
                 raw,

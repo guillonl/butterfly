@@ -155,3 +155,80 @@ struct StudioToggle: View {
         .buttonStyle(.plain)
     }
 }
+
+/// Carte « bevel » du panneau détail : surface relevée, bordure dégradée
+/// (lumière en haut), ombre courte. Sépare nettement les blocs de contenu
+/// (correction, texte final, traduction…).
+struct StudioCard<Content: View>: View {
+    var padding: CGFloat = 16
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(padding)
+            .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radiusCard))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.radiusCard)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.10), Color.white.opacity(0.03)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: .black.opacity(0.22), radius: 5, y: 2)
+    }
+}
+
+/// Groupe d'actions segmenté (façon J'aime / J'aime pas) : une capsule,
+/// des segments séparés par des hairlines, hover par segment.
+struct StudioSegmentGroup<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(spacing: 0) { content }
+            .background(Theme.controlFill, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+            .clipShape(Capsule())
+    }
+}
+
+/// Un segment de StudioSegmentGroup.
+struct StudioSegment: View {
+    let title: String
+    let systemImage: String
+    var tint: Color = Theme.textSecondary
+    var action: () -> Void
+
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, 12)
+            .frame(height: 28)
+            .background(Color.white.opacity(hovered ? 0.08 : 0))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+    }
+}
+
+/// Séparateur vertical entre segments.
+struct StudioSegmentDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.08))
+            .frame(width: 1, height: 16)
+    }
+}

@@ -49,18 +49,10 @@ private struct DetailHeader<Actions: View>: View {
     let entry: HistoryEntry
     @ViewBuilder var actions: Actions
 
+    // Épuré (review 2026-08-28) : la date et l'heure suffisent ici,
+    // le déclencheur reste visible dans la liste.
     private var meta: String {
-        var parts = [detailDateFormatter.string(from: entry.date)]
-        if let trigger = entry.trigger {
-            var label = L10n.t("main.detail.\(trigger)")
-            switch trigger {
-            case "capture": label += " \(ShortcutStore.shortcut(for: .capture).display)"
-            case "selection": label += " \(ShortcutStore.shortcut(for: .selection).display)"
-            default: break
-            }
-            parts.append(label)
-        }
-        return parts.joined(separator: " · ")
+        detailDateFormatter.string(from: entry.date)
     }
 
     var body: some View {
@@ -111,86 +103,83 @@ private struct CorrectionDetail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             DetailHeader(entry: entry) {
-                StudioPillButton(
-                    title: L10n.t("main.regenerate"),
-                    systemImage: "arrow.clockwise"
-                ) { regenerate() }
-                    .disabled(isRegenerating)
-                    .opacity(isRegenerating ? 0.5 : 1)
-                CopyPillButton(text: corrected)
+                StudioSegmentGroup {
+                    StudioSegment(
+                        title: L10n.t("main.regenerate"),
+                        systemImage: "arrow.clockwise"
+                    ) { regenerate() }
+                        .disabled(isRegenerating)
+                        .opacity(isRegenerating ? 0.5 : 1)
+                    StudioSegmentDivider()
+                    CopySegment(text: corrected)
+                }
                 DeleteButton { model.history.remove(entry.id) }
             }
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 14) {
                     // CORRECTION : diff mot à mot
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 8) {
-                            StudioSectionLabel(text: L10n.t("panel.correction"))
-                            if entry.corrected != nil {
-                                if faultCount == 0 {
-                                    StudioBadge(
-                                        text: L10n.t("panel.noChange"),
-                                        color: Theme.fix,
-                                        background: Theme.ok.opacity(0.12)
-                                    )
-                                } else {
-                                    StudioBadge(
-                                        text: L10n.plural("main.faults", faultCount),
-                                        color: Theme.faultSoft,
-                                        background: Theme.fault.opacity(0.14)
-                                    )
+                    StudioCard {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 8) {
+                                StudioSectionLabel(text: L10n.t("panel.correction"))
+                                if entry.corrected != nil {
+                                    if faultCount == 0 {
+                                        StudioBadge(text: L10n.t("panel.noChange"))
+                                    } else {
+                                        StudioBadge(
+                                            text: L10n.plural("main.faults", faultCount),
+                                            color: Theme.faultSoft,
+                                            background: Theme.fault.opacity(0.14)
+                                        )
+                                    }
                                 }
                             }
-                        }
-                        DiffText(
-                            original: entry.original,
-                            corrected: corrected,
-                            isBusy: isRegenerating
-                        ) { word in
-                            model.onWordTap?(word, sourceLanguage)
-                        }
-                        if faultCount > 0 {
-                            DiffLegend()
+                            DiffText(
+                                original: entry.original,
+                                corrected: corrected,
+                                isBusy: isRegenerating
+                            ) { word in
+                                model.onWordTap?(word, sourceLanguage)
+                            }
+                            if faultCount > 0 {
+                                DiffLegend()
+                            }
                         }
                     }
 
                     // TEXTE FINAL : bloc copiable tel quel
                     if entry.corrected != nil, faultCount > 0 {
-                        VStack(alignment: .leading, spacing: 8) {
-                            StudioSectionLabel(text: L10n.t("main.finalText"))
-                            Text(corrected)
-                                .font(.system(size: 13))
-                                .foregroundStyle(Theme.textSecondary)
-                                .lineSpacing(4)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 12)
-                                .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radiusRow))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: Theme.radiusRow)
-                                        .strokeBorder(Theme.cardStroke, lineWidth: 1)
-                                )
+                        StudioCard {
+                            VStack(alignment: .leading, spacing: 10) {
+                                StudioSectionLabel(text: L10n.t("main.finalText"))
+                                Text(corrected)
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Theme.textSecondary)
+                                    .lineSpacing(4)
+                                    .textSelection(.enabled)
+                            }
                         }
                     }
 
                     // TRADUCTION
                     if let translated = entry.translated {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
-                                StudioSectionLabel(text: L10n.t("panel.translation"))
-                                languageMenu
-                                if isRetranslating {
-                                    ProgressView().controlSize(.mini)
+                        StudioCard {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 8) {
+                                    StudioSectionLabel(text: L10n.t("panel.translation"))
+                                    languageMenu
+                                    if isRetranslating {
+                                        ProgressView().controlSize(.mini)
+                                    }
                                 }
+                                Text(translated)
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(Theme.textSecondary)
+                                    .lineSpacing(4)
+                                    .textSelection(.enabled)
+                                    .opacity(isRetranslating ? 0.5 : 1)
                             }
-                            Text(translated)
-                                .font(.system(size: 13))
-                                .foregroundStyle(Theme.textSecondary)
-                                .lineSpacing(4)
-                                .textSelection(.enabled)
-                                .opacity(isRetranslating ? 0.5 : 1)
                         }
                     }
 
@@ -205,7 +194,7 @@ private struct CorrectionDetail: View {
                         }
                     }
                 }
-                .padding(20)
+                .padding(24)
             }
 
             Spacer(minLength: 0)
@@ -366,22 +355,22 @@ private struct DiffText: View {
 /// Légende sous le diff (trait rouge / bloc vert).
 private struct DiffLegend: View {
     var body: some View {
-        HStack(spacing: 14) {
-            HStack(spacing: 6) {
+        HStack(spacing: 12) {
+            HStack(spacing: 5) {
                 RoundedRectangle(cornerRadius: 1)
-                    .fill(Theme.fault)
-                    .frame(width: 14, height: 2)
+                    .fill(Theme.fault.opacity(0.8))
+                    .frame(width: 12, height: 2)
                 Text(L10n.t("main.legend.fault"))
             }
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(Theme.ok.opacity(0.25))
-                    .frame(width: 14, height: 8)
+                    .fill(Theme.ok.opacity(0.22))
+                    .frame(width: 12, height: 7)
                 Text(L10n.t("main.legend.fix"))
             }
         }
-        .font(.system(size: 11))
-        .foregroundStyle(Theme.textTertiary)
+        .font(.system(size: 10))
+        .foregroundStyle(Theme.textQuaternary)
     }
 }
 
@@ -399,34 +388,39 @@ private struct DictationDetail: View {
             }
 
             AudioPlayerCard(entry: entry)
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 24)
                 .padding(.top, 16)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        StudioSectionLabel(text: L10n.t("main.transcription"))
-                        Text(entry.corrected ?? entry.original)
-                            .font(.system(size: 14))
-                            .foregroundStyle(Theme.textPrimary)
-                            .lineSpacing(5)
-                            .textSelection(.enabled)
-                    }
-                    if let raw = entry.rawTranscript {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
-                                StudioSectionLabel(text: L10n.t("main.rawHeard"))
-                                StudioBadge(text: L10n.t("main.correctedOnFly"))
-                            }
-                            Text(raw)
-                                .font(.system(size: 12))
-                                .foregroundStyle(Theme.textQuaternary)
-                                .lineSpacing(4)
+                VStack(alignment: .leading, spacing: 14) {
+                    StudioCard {
+                        VStack(alignment: .leading, spacing: 10) {
+                            StudioSectionLabel(text: L10n.t("main.transcription"))
+                            Text(entry.corrected ?? entry.original)
+                                .font(.system(size: 14))
+                                .foregroundStyle(Theme.textPrimary)
+                                .lineSpacing(5)
                                 .textSelection(.enabled)
                         }
                     }
+                    if let raw = entry.rawTranscript {
+                        StudioCard {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 8) {
+                                    StudioSectionLabel(text: L10n.t("main.rawHeard"))
+                                    StudioBadge(text: L10n.t("main.correctedOnFly"))
+                                }
+                                Text(raw)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(Theme.textQuaternary)
+                                    .lineSpacing(4)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                    }
                 }
-                .padding(20)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
             }
 
             Spacer(minLength: 0)
@@ -594,6 +588,38 @@ private struct PlayButton: View {
 }
 
 // MARK: - Communs
+
+/// Segment « Copier » d'un StudioSegmentGroup (feedback ✓).
+struct CopySegment: View {
+    let text: String
+    @State private var copied = false
+    @State private var hovered = false
+
+    var body: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { copied = true }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+                withAnimation(.easeOut(duration: 0.3)) { copied = false }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(L10n.t(copied ? "main.copied" : "main.copy"))
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(copied ? Theme.fix : Theme.textSecondary)
+            .padding(.horizontal, 12)
+            .frame(height: 28)
+            .background(Color.white.opacity(hovered ? 0.08 : 0))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+    }
+}
 
 /// Copier avec feedback ✓ (équivalent CopyButton, en capsule Studio).
 struct CopyPillButton: View {

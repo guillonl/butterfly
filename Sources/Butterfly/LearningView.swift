@@ -102,18 +102,18 @@ private struct ObservedEditRow: View {
             HStack(spacing: 7) {
                 Text(rule.heard)
                     .font(.system(size: 12))
-                    .strikethrough(true, color: Theme.fault.opacity(0.7))
-                    .foregroundStyle(Theme.faultSoft)
+                    .strikethrough(true, color: Color.white.opacity(0.25))
+                    .foregroundStyle(Theme.textQuaternary)
                 Image(systemName: "arrow.right")
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(Theme.textQuaternary)
                 Text(rule.written)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.fix)
+                    .foregroundStyle(Theme.textPrimary)
                 Spacer(minLength: 0)
                 Text(L10n.t(rule.status == .learned ? "learning.vocab.learned" : "learning.vocab.pending"))
                     .font(.system(size: 10))
-                    .foregroundStyle(rule.status == .learned ? Theme.ok : Theme.accentSoft)
+                    .foregroundStyle(rule.status == .learned ? Theme.textQuaternary : Theme.accentSoft)
             }
             Text(meta)
                 .font(.system(size: 11))
@@ -133,10 +133,11 @@ private struct ProfilePanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
+            HStack(spacing: 8) {
                 Text(L10n.t("learning.title"))
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(Theme.textPrimary)
+                LoopInfoButton()
                 Spacer()
                 HStack(spacing: 8) {
                     Text(L10n.t("learning.loop"))
@@ -153,8 +154,6 @@ private struct ProfilePanel: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    LoopStepsRow()
-
                     // Vocabulaire
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 8) {
@@ -163,10 +162,21 @@ private struct ProfilePanel: View {
                                 StudioBadge(text: L10n.t("learning.vocab.count", profile.vocab.count))
                             }
                             Spacer()
-                            Button(L10n.t("learning.vocab.add")) { showAddSheet = true }
-                                .buttonStyle(.plain)
-                                .font(.system(size: 11))
-                                .foregroundStyle(Theme.accentSoft)
+                            Button {
+                                showAddSheet = true
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 9, weight: .bold))
+                                    Text(L10n.t("learning.vocab.add"))
+                                        .font(.system(size: 11, weight: .medium))
+                                }
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 11)
+                                .padding(.vertical, 5)
+                                .background(Theme.accent, in: Capsule())
+                            }
+                            .buttonStyle(.plain)
                         }
                         if !profile.vocab.isEmpty {
                             VStack(spacing: 0) {
@@ -240,44 +250,28 @@ private struct ProfilePanel: View {
     }
 }
 
-/// La boucle en 4 temps, version compacte.
-private struct LoopStepsRow: View {
-    private let steps: [(title: String, hint: String, accent: Bool)] = [
-        (L10n.t("learning.step1.title"), L10n.t("learning.step1.hint"), false),
-        (L10n.t("learning.step2.title"), L10n.t("learning.step2.hint"), false),
-        (L10n.t("learning.step3.title"), L10n.t("learning.step3.hint"), false),
-        (L10n.t("learning.step4.title"), L10n.t("learning.step4.hint"), true),
-    ]
+/// « i » d'information : la boucle d'auto-amélioration expliquée à la
+/// demande (le flux en 4 étapes affiché en permanence était superflu).
+private struct LoopInfoButton: View {
+    @State private var showing = false
+    @State private var hovered = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(step.title)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(step.accent ? Theme.accentSoft : Theme.textSecondary)
-                    Text(step.hint)
-                        .font(.system(size: 10))
-                        .foregroundStyle(step.accent ? Theme.textTertiary : Theme.textQuaternary)
-                        .lineSpacing(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
-                .background(
-                    step.accent ? Theme.accent.opacity(0.12) : Theme.surfaceRaised,
-                    in: RoundedRectangle(cornerRadius: Theme.radiusRow)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.radiusRow)
-                        .strokeBorder(step.accent ? Theme.accent.opacity(0.3) : Theme.cardStroke, lineWidth: 1)
-                )
-                if index < steps.count - 1 {
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Theme.textQuaternary)
-                }
-            }
+        Button {
+            showing.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(hovered || showing ? Theme.textSecondary : Theme.textQuaternary)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .popover(isPresented: $showing, arrowEdge: .bottom) {
+            Text(L10n.t("learning.info"))
+                .font(.system(size: 12))
+                .lineSpacing(4)
+                .frame(width: 280, alignment: .leading)
+                .padding(14)
         }
     }
 }
@@ -316,7 +310,7 @@ private struct VocabRow: View {
                 if rule.timesApplied > 0 {
                     Text(L10n.t("learning.vocab.applied", rule.timesApplied))
                         .font(.system(size: 10))
-                        .foregroundStyle(Theme.ok)
+                        .foregroundStyle(Theme.textQuaternary)
                 }
                 Button {
                     profile.remove(rule.id)

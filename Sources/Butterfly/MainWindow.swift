@@ -8,6 +8,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
     case translations
     case dictations
     case learning
+    case settings
 
     var id: String { rawValue }
 
@@ -18,6 +19,7 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         case .translations: return "main.translations"
         case .dictations: return "main.dictations"
         case .learning: return "main.learning"
+        case .settings: return "main.settings"
         }
     }
 
@@ -29,11 +31,17 @@ enum LibrarySection: String, CaseIterable, Identifiable {
         case .translations: return "globe"
         case .dictations: return "microphone"
         case .learning: return "sparkles"
+        case .settings: return "gearshape"
         }
     }
 
     /// Vrai pour les sections qui filtrent la liste d'entrées.
-    var isLibraryFilter: Bool { self != .learning }
+    var isLibraryFilter: Bool { self != .learning && self != .settings }
+
+    /// Sections affichées dans la navigation principale (Réglages vit en bas).
+    static var navigation: [LibrarySection] {
+        allCases.filter { $0 != .settings }
+    }
 }
 
 /// État partagé de la fenêtre principale.
@@ -45,6 +53,9 @@ final class MainViewModel: ObservableObject {
     /// Clic sur une correction (mot vert) : (mot nettoyé, langue source).
     /// Branché par l'AppDelegate sur la bulle de synonymes.
     var onWordTap: ((String, String) -> Void)?
+    /// Application d'un nouveau raccourci (Réglages) ; renvoie false si refusé.
+    /// Branché par l'AppDelegate sur HotKeyManager + ShortcutStore.
+    var onShortcutChange: ((HotKeyAction, Shortcut) -> Bool)?
 
     let history: HistoryStore
     let profile: LanguageProfileStore
@@ -61,13 +72,14 @@ final class MainViewModel: ObservableObject {
         case .translations: return history.entries.filter { $0.translated != nil }.count
         case .dictations: return history.entries.filter { $0.kind == .dictation }.count
         case .learning: return profile.pendingRules.count
+        case .settings: return 0
         }
     }
 
     var filteredEntries: [HistoryEntry] {
         var entries = history.entries
         switch section {
-        case .all, .learning: break
+        case .all, .learning, .settings: break
         case .corrections: entries = entries.filter { $0.kind == .correction }
         case .translations: entries = entries.filter { $0.translated != nil }
         case .dictations: entries = entries.filter { $0.kind == .dictation }
@@ -184,6 +196,8 @@ struct MainView: View {
             Rectangle().fill(Theme.hairline).frame(width: 1)
             if model.section == .learning {
                 LearningView(profile: model.profile)
+            } else if model.section == .settings {
+                SettingsHomeView(model: model)
             } else {
                 EntryListView(model: model)
                     .frame(width: 300)
@@ -222,7 +236,7 @@ struct SidebarView: View {
             .padding(.bottom, 18)
 
             VStack(spacing: 3) {
-                ForEach(LibrarySection.allCases) { section in
+                ForEach(LibrarySection.navigation) { section in
                     SidebarRow(
                         section: section,
                         selected: model.section == section,
@@ -242,7 +256,9 @@ struct SidebarView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 14)
 
-            SettingsRow(action: onOpenSettings)
+            SettingsRow {
+                model.section = .settings
+            }
                 .padding(.horizontal, 22)
                 .padding(.bottom, 18)
         }
