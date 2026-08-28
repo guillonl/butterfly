@@ -17,7 +17,6 @@ final class DictationHUDModel: ObservableObject {
     @Published var phase: Phase = .listening
     @Published var level: Double = 0
     @Published var elapsed: TimeInterval = 0
-    @Published var languageCode = "fr"
 }
 
 /// Pilule HUD au-dessus de tout : papillon, barres de niveau micro,
@@ -33,17 +32,12 @@ struct DictationHUDView: View {
 
             switch model.phase {
             case .listening:
+                // Pas de badge de langue : en automatique, la langue parlée
+                // est détectée à la fin (duel fr/en), rien à annoncer ici.
                 LevelBars(level: model.level)
                 Text(Self.format(model.elapsed))
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.85))
-                Text(model.languageCode.uppercased())
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(0.6)
-                    .foregroundStyle(.white.opacity(0.75))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 1))
             case .processing:
                 ProgressView()
                     .controlSize(.small)

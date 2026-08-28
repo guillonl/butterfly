@@ -68,9 +68,16 @@ final class DictationController {
         monitors = []
     }
 
+    private func debugLog(_ message: String) {
+        if ProcessInfo.processInfo.environment["BUTTERFLY_DEBUG"] != nil {
+            FileHandle.standardError.write(Data("[dictation] \(message)\n".utf8))
+        }
+    }
+
     private func handleFlags(_ event: NSEvent) {
         let key = DictationSettings.shortcut
         guard event.keyCode == key.keyCode else { return }
+        debugLog("flagsChanged keyCode=\(event.keyCode) flags=\(event.modifierFlags.rawValue) attendu=\(key.rawValue)")
         if event.modifierFlags.contains(key.flag) {
             Task { await begin() }
         } else {
@@ -83,12 +90,13 @@ final class DictationController {
     private func begin() async {
         guard !isActive else { return }
         isActive = true
+        debugLog("begin")
 
         // Capturer l'app cible AVANT d'afficher quoi que ce soit.
         let appName = NSWorkspace.shared.frontmostApplication?.localizedName
 
-        // Locale : réglage Dictée (auto = langue système).
-        let locale = DictationSettings.effectiveLocale
+        // Locales : réglage Dictée (auto = duel fr + en, langue détectée).
+        let locales = DictationSettings.effectiveLocales
 
         // Fichier de réécoute (Application Support/Butterfly/Recordings).
         var recordingFile: String?
@@ -103,7 +111,6 @@ final class DictationController {
 
         session = Session(startedAt: Date(), appName: appName, recordingFile: recordingFile)
 
-        hud.model.languageCode = String(locale.identifier.prefix(2))
         hud.show()
 
         engine.onLevel = { [weak self] level in
@@ -116,9 +123,12 @@ final class DictationController {
             }
         }
 
+        debugLog("micro… locales=\(locales.map(\.identifier))")
         do {
-            try await engine.startMicrophone(locale: locale, recordingURL: recordingURL)
+            try await engine.startMicrophone(locales: locales, recordingURL: recordingURL)
+            debugLog("micro démarré")
         } catch {
+            debugLog("micro ÉCHEC: \(error)")
             hud.model.phase = .failed(error.localizedDescription)
             hud.close(after: 1.6)
             endSession()
@@ -143,7 +153,9 @@ final class DictationController {
 
         hud.model.phase = .processing
         let raw = await engine.stop()
+        debugLog("raw(\(engine.locale.identifier)): « \(raw) »")
         guard !raw.isEmpty else {
+            debugLog("transcription vide")
             deleteRecording(session.recordingFile)
             hud.model.phase = .failed(L10n.t("hud.noText"))
             hud.close(after: 1.4)
@@ -151,8 +163,8 @@ final class DictationController {
             return
         }
 
-        // Nettoyage LLM avec le profil de langage (mesuré).
-        let source = String(engine.locale.identifier.prefix(2))
+        // Nettoyage LLM dans la langue DÉTECTÉE (la gagnante du duel).
+        let source = engine.locale.language.languageCode?.identifier ?? "fr"
         let profile = LanguageProfileStore.shared
         var cleaned = raw
         var engineLabel: String?
@@ -182,6 +194,7 @@ final class DictationController {
             }
         }
 
+        debugLog("cleaned: « \(cleaned) » → insertion")
         // Insertion au curseur (l'app cible a gardé le focus : HUD non-activant).
         await PasteService.insert(cleaned)
 

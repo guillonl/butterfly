@@ -67,11 +67,18 @@ enum DictationSettings {
         set { UserDefaults.standard.set(newValue, forKey: localeKey) }
     }
 
-    static var effectiveLocale: Locale {
+    /// Locales de la session de dictée. « Automatique » lance un duel
+    /// fr + en : les deux transcrivent, la meilleure hypothèse gagne
+    /// (détection de la langue PARLÉE, pas de la langue du Mac).
+    static var effectiveLocales: [Locale] {
         switch localeChoice {
-        case "fr": return Locale(identifier: "fr_FR")
-        case "en": return Locale(identifier: "en_US")
-        default: return Locale(identifier: L10n.isFrench ? "fr_FR" : "en_US")
+        case "fr": return [Locale(identifier: "fr_FR")]
+        case "en": return [Locale(identifier: "en_US")]
+        default:
+            // La langue du système d'abord (hypothèse affichée en direct).
+            return L10n.isFrench
+                ? [Locale(identifier: "fr_FR"), Locale(identifier: "en_US")]
+                : [Locale(identifier: "en_US"), Locale(identifier: "fr_FR")]
         }
     }
 }

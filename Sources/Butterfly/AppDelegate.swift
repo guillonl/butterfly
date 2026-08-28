@@ -83,6 +83,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if CommandLine.arguments.contains("--test-quality") {
             QualityBench.run()
         }
+        if CommandLine.arguments.contains("--test-langpick") {
+            runLangPickTests()
+        }
         if CommandLine.arguments.contains("--test-learn") {
             runLearnTests()
         }
@@ -590,7 +593,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func runHUDDemo() {
         let hud = DictationHUDController()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            hud.model.languageCode = "fr"
             hud.show()
             var tick = 0
             Timer.scheduledTimer(withTimeInterval: 0.18, repeats: true) { timer in
@@ -609,6 +611,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 hud.close(after: 2.0)
             }
         }
+    }
+
+    /// Non-régression du départage de langues (--test-langpick) : le duel
+    /// fr/en doit choisir l'hypothèse dont la langue détectée correspond.
+    private func runLangPickTests() {
+        let fr = Locale(identifier: "fr_FR")
+        let en = Locale(identifier: "en_US")
+        struct Case {
+            let name: String
+            let hypotheses: [(locale: Locale, text: String, confidence: Double)]
+            let expected: String
+        }
+        // Confiances typiques observées : le bon modèle > 0,7, le mauvais < 0,5.
+        let cases = [
+            Case(
+                name: "français parlé",
+                hypotheses: [
+                    (en, "prepare an resume the retour clean poor la revue de sprint", 0.42),
+                    (fr, "prépare un résumé des retours client pour la revue de sprint", 0.88),
+                ],
+                expected: "fr"
+            ),
+            Case(
+                name: "anglais parlé (charabia fr plausible mais confiance basse)",
+                hypotheses: [
+                    (en, "this is a butterfly dictation test, it works locally", 0.91),
+                    (fr, "disait une bateau flaille dictation test et work locale", 0.44),
+                ],
+                expected: "en"
+            ),
+            Case(
+                name: "français avec anglicismes",
+                hypotheses: [
+                    (en, "on fat the sprint review demand batin japort les mockups", 0.48),
+                    (fr, "on fait la sprint review demain matin j'apporte les mockups du onboarding", 0.83),
+                ],
+                expected: "fr"
+            ),
+            Case(
+                name: "une seule hypothèse non vide",
+                hypotheses: [(en, "", 0), (fr, "bonjour tout le monde", 0.9)],
+                expected: "fr"
+            ),
+            Case(
+                name: "sans confiance : cohérence linguistique seule",
+                hypotheses: [
+                    (en, "prepare an resume the retour clean poor la revue", 0),
+                    (fr, "prépare un résumé des retours client pour la revue", 0),
+                ],
+                expected: "fr"
+            ),
+        ]
+        var failures = 0
+        for testCase in cases {
+            let best = DictationEngine.pickBest(testCase.hypotheses)
+            let got = best?.locale.language.languageCode?.identifier ?? "?"
+            let ok = got == testCase.expected
+            if !ok { failures += 1 }
+            FileHandle.standardError.write(Data("[langpick] \(ok ? "OK " : "ÉCHEC") \(testCase.name) → \(got)\n".utf8))
+        }
+        FileHandle.standardError.write(Data("[langpick] \(cases.count - failures)/\(cases.count) cas passés\n".utf8))
+        exit(failures == 0 ? 0 : 1)
     }
 
     /// Non-régression de l'extraction de retouches (--test-learn) :
