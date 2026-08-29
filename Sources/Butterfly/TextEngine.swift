@@ -19,7 +19,7 @@ enum EngineBackend {
         switch self {
         case .ollama: return "Qwen3 4B · local"
         case .apple: return "Apple Intelligence · local"
-        case .builtin: return "Qwen3 4B · intégré"
+        case .builtin: return L10n.t("engine.builtinLabel")
         }
     }
 }
@@ -253,7 +253,7 @@ final class TextEngine {
         case .apple:
             return "Apple Intelligence · local"
         case .builtin:
-            return LlamaEngine.modelLabel
+            return L10n.t("engine.builtinLabel")
         case .ollama:
             let model = resolvedOllamaModel ?? preferredOllamaModels.last!
             if model.lowercased().contains("qwen3-4b-instruct") || model == "qwen3:4b-instruct" {

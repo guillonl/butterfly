@@ -27,7 +27,7 @@ final class LlamaEngine: ObservableObject {
     private static let modelURL = URL(string:
         "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
     )!
-    static let modelLabel = "Qwen3 4B Instruct · intégré"
+    static var modelLabel: String { L10n.t("engine.builtinLabel") }
 
     nonisolated static var modelFile: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
