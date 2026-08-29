@@ -32,6 +32,17 @@ if [ "${BUTTERFLY_SKIP_EMBED:-0}" != "1" ]; then
   fi
 fi
 
+# Framework llama.cpp (moteur de texte intégré) : dylib à embarquer.
+LLAMA_FW=$(find .build/artifacts -type d -name "llama.framework" -path "*macos*" 2>/dev/null | head -1)
+if [ -n "$LLAMA_FW" ]; then
+  mkdir -p "$APP/Contents/Frameworks"
+  cp -R "$LLAMA_FW" "$APP/Contents/Frameworks/"
+  install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/Butterfly" 2>/dev/null || true
+  echo "llama.framework embarqué"
+else
+  echo "⚠️  llama.framework introuvable dans .build/artifacts"
+fi
+
 # Identité stable « Butterfly Dev » si présente (les permissions TCC
 # survivent alors aux rebuilds), sinon signature ad hoc.
 IDENTITY="-"
@@ -40,5 +51,8 @@ if security find-identity -v -p codesigning 2>/dev/null | grep -q "Butterfly Dev
 fi
 # --options runtime : Hardened Runtime, bloque l'injection de dylib dans un
 # process qui détient des permissions sensibles (écran, accessibilité).
+if [ -d "$APP/Contents/Frameworks/llama.framework" ]; then
+  codesign --force --sign "$IDENTITY" "$APP/Contents/Frameworks/llama.framework"
+fi
 codesign --force --options runtime --entitlements Butterfly.entitlements --sign "$IDENTITY" "$APP"
 echo "OK → $APP (signé : $IDENTITY, hardened runtime)"

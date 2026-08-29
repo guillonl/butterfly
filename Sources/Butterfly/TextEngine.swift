@@ -5,16 +5,21 @@ enum EnginePreference: String, CaseIterable {
     case auto
     case ollama
     case apple
+    /// Qwen3 4B in-process (llama.cpp), sans Ollama.
+    case builtin
 }
 
 enum EngineBackend {
     case ollama
     case apple
+    /// llama.cpp intégré (GGUF téléchargé à la demande).
+    case builtin
 
     var label: String {
         switch self {
         case .ollama: return "Qwen3 4B · local"
         case .apple: return "Apple Intelligence · local"
+        case .builtin: return "Qwen3 4B · intégré"
         }
     }
 }
@@ -64,11 +69,19 @@ final class TextEngine {
         switch preference {
         case .ollama:
             if await ensureOllama() { return .ollama }
+            if LlamaEngine.isModelDownloaded { return .builtin }
             return appleAvailable ? .apple : nil
         case .apple:
             if appleAvailable { return .apple }
+            if LlamaEngine.isModelDownloaded { return .builtin }
             return await ensureOllama() ? .ollama : nil
+        case .builtin:
+            if LlamaEngine.isModelDownloaded { return .builtin }
+            if await ensureOllama() { return .ollama }
+            return appleAvailable ? .apple : nil
         case .auto:
+            // Le modèle intégré a été téléchargé délibérément : il prime.
+            if LlamaEngine.isModelDownloaded { return .builtin }
             if await ensureOllama() { return .ollama }
             return appleAvailable ? .apple : nil
         }
@@ -239,6 +252,8 @@ final class TextEngine {
         switch backend {
         case .apple:
             return "Apple Intelligence · local"
+        case .builtin:
+            return LlamaEngine.modelLabel
         case .ollama:
             let model = resolvedOllamaModel ?? preferredOllamaModels.last!
             if model.lowercased().contains("qwen3-4b-instruct") || model == "qwen3:4b-instruct" {
@@ -386,6 +401,10 @@ final class TextEngine {
         switch backend {
         case .apple:
             return try await appleComplete(system: system, user: user, temperature: temperature, onPartial: onPartial)
+        case .builtin:
+            return try await LlamaEngine.shared.complete(
+                system: system, user: user, temperature: temperature, onPartial: onPartial
+            )
         case .ollama:
             // Retry unique : il arrive que toute la sortie qwen3 parte dans le
             // raisonnement et que le contenu revienne vide.

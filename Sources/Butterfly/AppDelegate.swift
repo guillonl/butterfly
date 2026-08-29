@@ -29,6 +29,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if DictationSettings.asrChoice == "whisper" {
             Task { await WhisperEngine.shared.loadIfNeeded() }
         }
+        // Qwen3 intégré : mmap rapide, précharger si le modèle est là et
+        // qu'il sera le backend résolu.
+        if LlamaEngine.isModelDownloaded {
+            Task { await LlamaEngine.shared.loadIfNeeded() }
+        }
 
         HotKeyManager.shared.handlers[.capture] = { [weak self] in self?.startCapture() }
         HotKeyManager.shared.handlers[.selection] = { [weak self] in self?.startSelectionCorrection() }
@@ -94,6 +99,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let file = CommandLine.arguments.count > flagIndex + 1 ? CommandLine.arguments[flagIndex + 1] : nil
             runWhisperTest(file: file)
         }
+        if CommandLine.arguments.contains("--test-llama") {
+            runLlamaTest()
+        }
         if CommandLine.arguments.contains("--test-langpick") {
             runLangPickTests()
         }
@@ -119,6 +127,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Teardown propre du moteur intégré (assert ggml sinon).
+        LlamaEngine.shared.unload()
     }
 
     // MARK: - Barre de menus
@@ -166,8 +179,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let engineMenu = NSMenu()
         let prefs: [(EnginePreference, String)] = [
             (.auto, "menu.engine.auto"),
-            (.ollama, "menu.engine.ollama"),
             (.apple, "menu.engine.apple"),
+            (.builtin, "menu.engine.builtin"),
+            (.ollama, "menu.engine.ollama"),
         ]
         for (pref, key) in prefs {
             let item = NSMenuItem(title: L10n.t(key), action: #selector(selectEngine(_:)), keyEquivalent: "")
@@ -682,6 +696,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 exit(0)
             } catch {
                 log("[whisper] ÉCHEC transcription: \(error)")
+                exit(1)
+            }
+        }
+    }
+
+    /// Test du moteur intégré (--test-llama) : télécharge le GGUF si besoin,
+    /// correction courte chronométrée via le backend builtin.
+    private func runLlamaTest() {
+        Task { @MainActor in
+            func log(_ message: String) {
+                FileHandle.standardError.write(Data((message + "\n").utf8))
+            }
+            let llama = LlamaEngine.shared
+            if !LlamaEngine.isModelDownloaded {
+                log("[llama] téléchargement du GGUF (~2,5 Go)…")
+                llama.downloadAndLoad()
+                var lastLogged = -10
+                while llama.state != .ready {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if case .downloading(let progress) = llama.state {
+                        let percent = Int(progress * 100)
+                        if percent >= lastLogged + 10 {
+                            log("[llama] \(percent) %")
+                            lastLogged = percent
+                        }
+                    }
+                    if case .failed(let message) = llama.state {
+                        log("[llama] ÉCHEC: \(message)")
+                        exit(1)
+                    }
+                }
+            } else {
+                await llama.loadIfNeeded()
+            }
+            guard llama.isReady else {
+                log("[llama] ÉCHEC: état \(String(describing: llama.state))")
+                exit(1)
+            }
+            log("[llama] modèle prêt (mmap), correction test…")
+            do {
+                let started = Date()
+                var streamed = 0
+                let result = try await TextEngine.shared.correct(
+                    "Je te partage le fichier des que j'ai terminer la maquette.",
+                    source: "fr",
+                    using: .builtin,
+                    onPartial: { _ in streamed += 1 }
+                )
+                let elapsed = String(format: "%.2f", Date().timeIntervalSince(started))
+                log("[llama] \(elapsed)s, \(streamed) fragments streamés : « \(result) »")
+                let ok = result.contains("dès") && result.contains("terminé")
+                log("[llama] \(ok ? "OK" : "ÉCHEC") corrections attendues")
+                llama.unload()
+                exit(ok ? 0 : 1)
+            } catch {
+                log("[llama] ÉCHEC: \(error)")
                 exit(1)
             }
         }

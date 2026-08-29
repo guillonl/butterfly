@@ -591,6 +591,70 @@ private struct DictationSettingsView: View {
     }
 }
 
+/// État du modèle Qwen3 intégré : téléchargement explicite, progression,
+/// prêt, suppression.
+private struct QwenModelStatus: View {
+    @ObservedObject var llama: LlamaEngine
+    var onChange: () -> Void
+    @State private var hoveredTrash = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            switch llama.state {
+            case .notDownloaded:
+                Button {
+                    llama.downloadAndLoad()
+                } label: {
+                    Text(L10n.t("settings.engine.model.download"))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 4)
+                        .background(Theme.accent, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            case .downloading(let progress):
+                ProgressView(value: progress)
+                    .controlSize(.small)
+                    .frame(width: 110)
+                Text("\(Int(progress * 100)) %")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Theme.textTertiary)
+            case .loading:
+                ProgressView().controlSize(.small)
+                Text(L10n.t("settings.dictation.asr.loading"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textTertiary)
+            case .ready:
+                Circle().fill(Theme.ok).frame(width: 6, height: 6)
+                Text(L10n.t("settings.engine.model.ready"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textSecondary)
+                Button {
+                    llama.removeModel()
+                    onChange()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 10))
+                        .foregroundStyle(hoveredTrash ? Theme.faultSoft : Theme.textQuaternary)
+                }
+                .buttonStyle(.plain)
+                .onHover { hoveredTrash = $0 }
+                .help(L10n.t("settings.engine.model.remove"))
+            case .failed(let message):
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+                Text(message)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
+                    .frame(maxWidth: 180)
+            }
+        }
+    }
+}
+
 /// État du modèle Whisper : téléchargement explicite, progression, prêt.
 private struct WhisperModelStatus: View {
     @ObservedObject var whisper: WhisperEngine
@@ -721,6 +785,7 @@ final class MicLevelMeter: ObservableObject {
 private struct EngineSettings: View {
     @State private var preference = TextEngine.shared.preference
     @State private var statusLabel = ""
+    @StateObject private var llama = LlamaEngine.shared
 
     var body: some View {
         SettingsGroup {
@@ -738,12 +803,20 @@ private struct EngineSettings: View {
                 )) {
                     Text(L10n.t("menu.engine.auto")).tag(EnginePreference.auto)
                     Text("Apple Intelligence").tag(EnginePreference.apple)
+                    Text(L10n.t("menu.engine.builtin")).tag(EnginePreference.builtin)
                     Text("Qwen3 4B (Ollama)").tag(EnginePreference.ollama)
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
                 .controlSize(.small)
                 .fixedSize()
+            }
+            SettingsDivider()
+            SettingRow(
+                title: L10n.t("settings.engine.model"),
+                subtitle: L10n.t("settings.engine.modelHint")
+            ) {
+                QwenModelStatus(llama: llama) { refreshStatus() }
             }
             SettingsDivider()
             SettingRow(
