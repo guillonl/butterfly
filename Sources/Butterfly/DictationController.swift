@@ -274,6 +274,13 @@ final class DictationController {
     /// celles faites plus tard. Chaque passe apprend les retouches nouvelles ;
     /// la déduplication évite de compter plusieurs fois la même.
     private func scheduleRetoucheWatch(inserted: String, appName: String?) {
+        let frontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        if let frontPID {
+            // Les apps Chromium/Electron (Slack, ChatGPT, navigateurs…)
+            // n'exposent leur arbre d'accessibilité que sur demande explicite.
+            let appElement = AXUIElementCreateApplication(frontPID)
+            AXUIElementSetAttributeValue(appElement, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        }
         guard let element = Self.focusedElement() else {
             debugLog("watch: aucun élément focalisé, abandon")
             return
@@ -282,11 +289,12 @@ final class DictationController {
         let delays: [TimeInterval] = ProcessInfo.processInfo.environment["BUTTERFLY_DEBUG"] != nil
             ? [8, 12, 20]
             : [20, 25, 45, 90]
-        watchPass(element: element, inserted: inserted, appName: appName, delays: delays, learned: [])
+        watchPass(element: element, appPID: frontPID, inserted: inserted, appName: appName, delays: delays, learned: [])
     }
 
     private func watchPass(
         element: AXUIElement,
+        appPID: pid_t?,
         inserted: String,
         appName: String?,
         delays: [TimeInterval],
@@ -295,8 +303,19 @@ final class DictationController {
         guard let delay = delays.first else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
+            var current = element
             var valueRef: CFTypeRef?
-            let status = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef)
+            var status = AXUIElementCopyAttributeValue(current, kAXValueAttribute as CFString, &valueRef)
+            if status != .success || ((valueRef as? String) ?? "").isEmpty {
+                // L'élément d'origine est mort ou muet (vue web recréée,
+                // navigation…) : retenter avec le champ focalisé ACTUEL de
+                // la même app, qui contient souvent encore le texte.
+                if let appPID, let fresh = Self.focusedElement(of: appPID) {
+                    current = fresh
+                    status = AXUIElementCopyAttributeValue(current, kAXValueAttribute as CFString, &valueRef)
+                    self.debugLog("watch(+\(Int(delay))s): élément d'origine muet, re-résolution → status \(status.rawValue)")
+                }
+            }
             guard status == .success, let value = valueRef as? String, !value.isEmpty else {
                 // Champ vidé (message envoyé) ou disparu : rien à apprendre de plus.
                 self.debugLog("watch(+\(Int(delay))s): champ illisible ou vide (status \(status.rawValue)) → arrêt")
@@ -317,7 +336,8 @@ final class DictationController {
             }
             self.debugLog("watch(+\(Int(delay))s): \(retouches.count) retouche(s), champ \(value.count) car.")
             self.watchPass(
-                element: element,
+                element: current,
+                appPID: appPID,
                 inserted: inserted,
                 appName: appName,
                 delays: Array(delays.dropFirst()),
@@ -330,6 +350,17 @@ final class DictationController {
         let systemWide = AXUIElementCreateSystemWide()
         var focusedRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+              let focused = focusedRef,
+              CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
+        return (focused as! AXUIElement)
+    }
+
+    /// Champ focalisé d'une app précise (re-résolution quand l'élément
+    /// capturé à l'insertion ne répond plus).
+    private static func focusedElement(of pid: pid_t) -> AXUIElement? {
+        let appElement = AXUIElementCreateApplication(pid)
+        var focusedRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
               let focused = focusedRef,
               CFGetTypeID(focused) == AXUIElementGetTypeID() else { return nil }
         return (focused as! AXUIElement)
