@@ -68,6 +68,14 @@ enum DictationSettings {
     private static let localeKey = "dictationLocale"
     private static let shortcutKey = "dictationShortcut"
     private static let micKey = "dictationMicUID"
+    private static let asrKey = "dictationASR"
+
+    /// Moteur de reconnaissance : "apple" (rapide, système) ou "whisper"
+    /// (qualité maximale, modèle à télécharger).
+    static var asrChoice: String {
+        get { UserDefaults.standard.string(forKey: asrKey) ?? "apple" }
+        set { UserDefaults.standard.set(newValue, forKey: asrKey) }
+    }
 
     /// UID du micro choisi ("" = entrée système par défaut).
     static var microphoneUID: String {
@@ -460,9 +468,39 @@ private struct DictationSettingsView: View {
     @State private var micUID = DictationSettings.microphoneUID
     @State private var devices: [AudioInputDevices.Device] = []
     @StateObject private var meter = MicLevelMeter()
+    @StateObject private var whisper = WhisperEngine.shared
+    @State private var asrChoice = DictationSettings.asrChoice
 
     var body: some View {
         SettingsGroup {
+            SettingRow(
+                title: L10n.t("settings.dictation.asr"),
+                subtitle: L10n.t("settings.dictation.asrHint")
+            ) {
+                VStack(alignment: .trailing, spacing: 8) {
+                    Picker("", selection: Binding(
+                        get: { asrChoice },
+                        set: { value in
+                            asrChoice = value
+                            DictationSettings.asrChoice = value
+                            if value == "whisper" {
+                                Task { await whisper.loadIfNeeded() }
+                            }
+                        }
+                    )) {
+                        Text(L10n.t("settings.dictation.asr.apple")).tag("apple")
+                        Text(L10n.t("settings.dictation.asr.whisper")).tag("whisper")
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .fixedSize()
+                    if asrChoice == "whisper" {
+                        WhisperModelStatus(whisper: whisper)
+                    }
+                }
+            }
+            SettingsDivider()
             SettingRow(
                 title: L10n.t("settings.dictation.mic"),
                 subtitle: L10n.t("settings.dictation.micHint")
@@ -550,6 +588,56 @@ private struct DictationSettingsView: View {
             meter.restart(uid: micUID)
         }
         .onDisappear { meter.stop() }
+    }
+}
+
+/// État du modèle Whisper : téléchargement explicite, progression, prêt.
+private struct WhisperModelStatus: View {
+    @ObservedObject var whisper: WhisperEngine
+
+    var body: some View {
+        HStack(spacing: 8) {
+            switch whisper.state {
+            case .notDownloaded:
+                Button {
+                    whisper.downloadAndLoad()
+                } label: {
+                    Text(L10n.t("settings.dictation.asr.download"))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 4)
+                        .background(Theme.accent, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            case .downloading(let progress):
+                ProgressView(value: progress)
+                    .controlSize(.small)
+                    .frame(width: 110)
+                Text("\(Int(progress * 100)) %")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(Theme.textTertiary)
+            case .loading:
+                ProgressView().controlSize(.small)
+                Text(L10n.t("settings.dictation.asr.loading"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textTertiary)
+            case .ready:
+                Circle().fill(Theme.ok).frame(width: 6, height: 6)
+                Text(L10n.t("settings.dictation.asr.ready"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textSecondary)
+            case .failed(let message):
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+                Text(message)
+                    .font(.system(size: 10))
+                    .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
+                    .frame(maxWidth: 180)
+            }
+        }
     }
 }
 

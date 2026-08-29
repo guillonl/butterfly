@@ -24,6 +24,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (les monitors globaux sont inertes sans elle, sans erreur).
         dictation.start()
         dictation.onAccessibilityMissing = { [weak self] in self?.showAccessibilityAlert() }
+        // Whisper (option Qualité) : chargement CoreML long au premier run →
+        // précharger si l'option est active et le modèle déjà sur disque.
+        if DictationSettings.asrChoice == "whisper" {
+            Task { await WhisperEngine.shared.loadIfNeeded() }
+        }
 
         HotKeyManager.shared.handlers[.capture] = { [weak self] in self?.startCapture() }
         HotKeyManager.shared.handlers[.selection] = { [weak self] in self?.startSelectionCorrection() }
@@ -84,6 +89,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if CommandLine.arguments.contains("--test-quality") {
             QualityBench.run()
+        }
+        if let flagIndex = CommandLine.arguments.firstIndex(of: "--test-whisper") {
+            let file = CommandLine.arguments.count > flagIndex + 1 ? CommandLine.arguments[flagIndex + 1] : nil
+            runWhisperTest(file: file)
         }
         if CommandLine.arguments.contains("--test-langpick") {
             runLangPickTests()
@@ -611,6 +620,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
                 hud.model.phase = .inserted(words: 22)
                 hud.close(after: 2.0)
+            }
+        }
+    }
+
+    /// Test de l'option Qualité (--test-whisper [fichier]) : télécharge le
+    /// modèle si besoin, transcrit un fichier (généré via say sinon), chronomètre.
+    private func runWhisperTest(file: String?) {
+        Task { @MainActor in
+            func log(_ message: String) {
+                FileHandle.standardError.write(Data((message + "\n").utf8))
+            }
+            let url: URL
+            if let file {
+                url = URL(fileURLWithPath: file)
+            } else {
+                url = FileManager.default.temporaryDirectory.appendingPathComponent("whisper-test.aiff")
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+                process.arguments = ["-v", "Amélie", "-o", url.path,
+                                     "Prépare un résumé des retours clients pour la revue de jeudi matin."]
+                try? process.run()
+                process.waitUntilExit()
+            }
+            let whisper = WhisperEngine.shared
+            if WhisperEngine.downloadedModelFolder == nil {
+                log("[whisper] téléchargement du modèle…")
+                whisper.downloadAndLoad()
+                var lastLogged = -10
+                while true {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    switch whisper.state {
+                    case .downloading(let progress):
+                        let percent = Int(progress * 100)
+                        if percent >= lastLogged + 10 {
+                            log("[whisper] \(percent) %")
+                            lastLogged = percent
+                        }
+                    case .loading: log("[whisper] chargement CoreML…")
+                    case .ready: break
+                    case .failed(let message): log("[whisper] ÉCHEC: \(message)"); exit(1)
+                    case .notDownloaded: break
+                    }
+                    if whisper.state == .ready { break }
+                }
+            } else {
+                await whisper.loadIfNeeded()
+            }
+            guard whisper.isReady else {
+                log("[whisper] ÉCHEC: modèle pas prêt (\(String(describing: whisper.state)))")
+                exit(1)
+            }
+            log("[whisper] modèle prêt, transcription…")
+            do {
+                for forced in [nil, "fr"] as [String?] {
+                    let started = Date()
+                    let result = try await whisper.transcribe(url: url, language: forced)
+                    let elapsed = String(format: "%.2f", Date().timeIntervalSince(started))
+                    log("[whisper] lang=\(forced ?? "auto") → \(result.language), \(elapsed)s : « \(result.text) »")
+                }
+                exit(0)
+            } catch {
+                log("[whisper] ÉCHEC transcription: \(error)")
+                exit(1)
             }
         }
     }

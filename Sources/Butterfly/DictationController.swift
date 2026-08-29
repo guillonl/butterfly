@@ -155,8 +155,34 @@ final class DictationController {
 
 
         hud.model.phase = .processing
-        let raw = await engine.stop()
+        var raw = await engine.stop()
+        var sourceCode = engine.locale.language.languageCode?.identifier ?? "fr"
         debugLog("raw(\(engine.locale.identifier)): « \(raw) »")
+
+        // Option « Qualité maximale » : Whisper transcrit l'enregistrement
+        // complet (détection de langue native) ; l'hypothèse Apple sert de
+        // secours si Whisper n'est pas prêt ou échoue.
+        if DictationSettings.asrChoice == "whisper",
+           WhisperEngine.shared.isReady,
+           let file = session.recordingFile,
+           let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            let url = support.appendingPathComponent("Butterfly/Recordings/\(file)")
+            let forced: String? = {
+                switch DictationSettings.localeChoice {
+                case "fr": return "fr"
+                case "en": return "en"
+                default: return nil
+                }
+            }()
+            if let result = try? await WhisperEngine.shared.transcribe(url: url, language: forced),
+               !result.text.isEmpty {
+                raw = result.text
+                sourceCode = String(result.language.prefix(2))
+                debugLog("whisper(\(result.language)): « \(raw.prefix(90)) »")
+            } else {
+                debugLog("whisper indisponible/vide → hypothèse Apple conservée")
+            }
+        }
         guard !raw.isEmpty else {
             debugLog("transcription vide")
             deleteRecording(session.recordingFile)
@@ -166,8 +192,8 @@ final class DictationController {
             return
         }
 
-        // Nettoyage LLM dans la langue DÉTECTÉE (la gagnante du duel).
-        let source = engine.locale.language.languageCode?.identifier ?? "fr"
+        // Nettoyage LLM dans la langue DÉTECTÉE (duel Apple ou LID Whisper).
+        let source = sourceCode
         let profile = LanguageProfileStore.shared
         var cleaned = raw
         var engineLabel: String?
