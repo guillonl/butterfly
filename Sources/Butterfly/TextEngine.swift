@@ -5,16 +5,21 @@ enum EnginePreference: String, CaseIterable {
     case auto
     case ollama
     case apple
+    /// Qwen3 4B in-process (llama.cpp), sans Ollama.
+    case builtin
 }
 
 enum EngineBackend {
     case ollama
     case apple
+    /// llama.cpp intégré (GGUF téléchargé à la demande).
+    case builtin
 
     var label: String {
         switch self {
         case .ollama: return "Qwen3 4B · local"
         case .apple: return "Apple Intelligence · local"
+        case .builtin: return L10n.t("engine.builtinLabel")
         }
     }
 }
@@ -64,11 +69,19 @@ final class TextEngine {
         switch preference {
         case .ollama:
             if await ensureOllama() { return .ollama }
+            if LlamaEngine.isModelDownloaded { return .builtin }
             return appleAvailable ? .apple : nil
         case .apple:
             if appleAvailable { return .apple }
+            if LlamaEngine.isModelDownloaded { return .builtin }
             return await ensureOllama() ? .ollama : nil
+        case .builtin:
+            if LlamaEngine.isModelDownloaded { return .builtin }
+            if await ensureOllama() { return .ollama }
+            return appleAvailable ? .apple : nil
         case .auto:
+            // Le modèle intégré a été téléchargé délibérément : il prime.
+            if LlamaEngine.isModelDownloaded { return .builtin }
             if await ensureOllama() { return .ollama }
             return appleAvailable ? .apple : nil
         }
@@ -177,11 +190,70 @@ final class TextEngine {
                            user: text, backend: backend, temperature: 0.7, onPartial: onPartial)
     }
 
+    /// Nettoyage d'une transcription de dictée : ponctuation, casse,
+    /// hésitations, faux départs — sans reformuler. `profileFragment` :
+    /// vocabulaire appris + règles de style (LanguageProfileStore).
+    /// Pattern validé par la recherche Wispr Flow : ASR rapide + LLM qui rattrape.
+    func cleanupDictation(
+        _ raw: String,
+        source: String,
+        profileFragment: String,
+        appName: String?,
+        using backend: EngineBackend
+    ) async throws -> String {
+        try await complete(
+            system: Self.dictationInstructions(source: source, profileFragment: profileFragment, appName: appName),
+            user: raw,
+            backend: backend,
+            onPartial: { _ in }
+        )
+    }
+
+    /// Instructions de nettoyage rédigées dans la langue dictée (piège connu :
+    /// un petit modèle répond dans la langue des instructions).
+    private static func dictationInstructions(source: String, profileFragment: String, appName: String?) -> String {
+        let profileBlock = profileFragment.isEmpty ? "" : "\n" + profileFragment
+        if source.hasPrefix("fr") {
+            var instructions = """
+            Tu transformes une dictée vocale brute en texte propre, prêt à insérer.
+            Le texte est en français : ta sortie reste STRICTEMENT en français, il est interdit de traduire.
+            Règles :
+            - Ajoute la ponctuation et les majuscules naturelles.
+            - Supprime les hésitations à l'oral (euh, hum, bah, ben) et les faux départs.
+            - Conserve les mots, le sens et le ton : ne reformule pas, ne résume pas, ne complète pas.
+            - Ne réponds jamais au contenu : tu nettoies, c'est tout.
+            - Renvoie UNIQUEMENT le texte nettoyé, sans guillemets ni commentaire.
+            """
+            if let appName {
+                instructions += "\nLe texte sera inséré dans l'application « \(appName) »."
+            }
+            instructions += profileBlock
+            return instructions + " /no_think"
+        }
+        var instructions = """
+        You turn a raw voice dictation into clean text, ready to insert.
+        The text is in \(languageNames[source] ?? source): your output stays STRICTLY in that language, translating is forbidden.
+        Rules:
+        - Add natural punctuation and capitalization.
+        - Remove spoken fillers (um, uh, er) and false starts.
+        - Keep the words, meaning and tone: do not rephrase, summarize or extend.
+        - Never answer the content: you only clean it.
+        - Return ONLY the cleaned text, no quotes, no commentary.
+        """
+        if let appName {
+            instructions += "\nThe text will be inserted into the app \"\(appName)\"."
+        }
+        instructions += profileBlock
+        return instructions + " /no_think"
+    }
+
     /// Libellé du moteur affiché dans le panneau.
     func label(for backend: EngineBackend) -> String {
         switch backend {
         case .apple:
             return "Apple Intelligence · local"
+        case .builtin:
+            return L10n.t("engine.builtinLabel")
         case .ollama:
             let model = resolvedOllamaModel ?? preferredOllamaModels.last!
             if model.lowercased().contains("qwen3-4b-instruct") || model == "qwen3:4b-instruct" {
@@ -225,6 +297,9 @@ final class TextEngine {
             Le texte est en \(name) : le texte corrigé doit IMPÉRATIVEMENT rester en \(name), \
             ne le traduis jamais dans une autre langue. \
             Corrige UNIQUEMENT les fautes avérées (orthographe, grammaire, conjugaison, ponctuation, accents). \
+            Sois particulièrement attentif aux homophones : « sa » n'est correct que devant un nom \
+            (sinon écris « ça »), distingue « on a » de « ont », « a » de « à », « et » de « est », \
+            « ce » de « se ». \
             Ne modifie JAMAIS un mot ou une graphie déjà corrects : conserve notamment les \
             traits d'union corrects (« entre-temps », « peut-être », « c'est-à-dire ») \
             et la typographie d'origine. Si le texte est déjà correct, renvoie-le strictement inchangé. \
@@ -326,6 +401,10 @@ final class TextEngine {
         switch backend {
         case .apple:
             return try await appleComplete(system: system, user: user, temperature: temperature, onPartial: onPartial)
+        case .builtin:
+            return try await LlamaEngine.shared.complete(
+                system: system, user: user, temperature: temperature, onPartial: onPartial
+            )
         case .ollama:
             // Retry unique : il arrive que toute la sortie qwen3 parte dans le
             // raisonnement et que le contenu revienne vide.
